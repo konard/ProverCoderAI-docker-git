@@ -31,7 +31,7 @@ RUN printf "export NVM_DIR=/usr/local/nvm\\n[ -s /usr/local/nvm/nvm.sh ] && . /u
   > /etc/profile.d/nvm.sh && chmod 0644 /etc/profile.d/nvm.sh`
 
 const renderDockerfileBunPrelude = (config: TemplateConfig): string =>
-  `# Tooling: pnpm + Codex CLI + oh-my-opencode (bun) + Claude Code CLI (npm)
+  `# Tooling: pnpm + Codex CLI (bun) + oh-my-opencode (npm + platform binary) + Claude Code CLI (npm)
 RUN corepack enable && corepack prepare pnpm@${config.pnpmVersion} --activate
 ENV TERM=xterm-256color
 RUN set -eu; \
@@ -42,15 +42,23 @@ RUN set -eu; \
       exit 0; \
     fi; \
     echo "bun install attempt \${attempt} failed; retrying..." >&2; \
-    rm -f /tmp/bun-install.sh; \
+      rm -f /tmp/bun-install.sh; \
     sleep $((attempt * 2)); \
   done; \
   echo "bun install failed after retries" >&2; \
   exit 1
 RUN ln -sf /usr/local/bun/bin/bun /usr/local/bin/bun
-RUN BUN_INSTALL=/usr/local/bun script -q -e -c "bun add -g @openai/codex@latest oh-my-opencode@latest" /dev/null
+RUN BUN_INSTALL=/usr/local/bun script -q -e -c "bun add -g @openai/codex@latest" /dev/null
 RUN ln -sf /usr/local/bun/bin/codex /usr/local/bin/codex
-RUN ln -sf /usr/local/bun/bin/oh-my-opencode /usr/local/bin/oh-my-opencode
+RUN set -eu; \
+  ARCH="$(uname -m)"; \
+  case "$ARCH" in \
+    x86_64|amd64) OH_MY_OPENCODE_ARCH="x64" ;; \
+    aarch64|arm64) OH_MY_OPENCODE_ARCH="arm64" ;; \
+    *) echo "Unsupported arch for oh-my-opencode: $ARCH" >&2; exit 1 ;; \
+  esac; \
+  npm install -g oh-my-opencode@latest "oh-my-opencode-linux-\${OH_MY_OPENCODE_ARCH}@latest"
+RUN oh-my-opencode --version
 RUN npm install -g @anthropic-ai/claude-code@latest
 RUN claude --version`
 

@@ -48,8 +48,9 @@ export const CreateAgentRequestSchema = Schema.Struct({
 })
 
 export const CreateFollowRequestSchema = Schema.Struct({
-  actor: Schema.String,
+  actor: OptionalString,
   object: Schema.String,
+  domain: OptionalString,
   inbox: OptionalString,
   to: Schema.optional(Schema.Array(Schema.String)),
   capability: OptionalString

@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto"
 
 import type {
   ActivityPubFollowActivity,
+  ActivityPubOrderedCollection,
+  ActivityPubPerson,
   CreateFollowRequest,
   FederationInboxResult,
   FederationIssueRecord,
@@ -14,6 +16,25 @@ import type {
 import { ApiBadRequestError, ApiConflictError, ApiNotFoundError } from "../api/errors.js"
 
 type JsonRecord = { readonly [key: string]: unknown }
+
+export type FederationContextInput = {
+  readonly publicOrigin: string
+  readonly actorUsername?: string | undefined
+}
+
+export type FederationContext = {
+  readonly publicOrigin: string
+  readonly actorUsername: string
+  readonly actorId: string
+  readonly inbox: string
+  readonly outbox: string
+  readonly followers: string
+  readonly following: string
+  readonly liked: string
+  readonly followsActivityPrefix: string
+}
+
+const defaultActorUsername = "docker-git"
 
 const issueStore: Map<string, FederationIssueRecord> = new Map()
 const followStore: Map<string, FollowSubscription> = new Map()
@@ -127,6 +148,195 @@ const cleanToRecipients = (
   (raw ?? [])
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
+
+const looksLikeAbsoluteUrl = (value: string): boolean =>
+  /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(value)
+
+const normalizeOrigin = (
+  raw: string
+): Effect.Effect<string, ApiBadRequestError> =>
+  Effect.try({
+    try: () => {
+      const trimmed = raw.trim()
+      if (trimmed.length === 0) {
+        throw new Error("Public federation domain must be non-empty.")
+      }
+      const candidate = looksLikeAbsoluteUrl(trimmed) ? trimmed : `https://${trimmed}`
+      const parsed = new URL(candidate)
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("Public federation domain must use http:// or https://.")
+      }
+      return `${parsed.protocol}//${parsed.host}`
+    },
+    catch: (cause) =>
+      new ApiBadRequestError({
+        message: cause instanceof Error ? cause.message : String(cause)
+      })
+  })
+
+const normalizeActorUsername = (
+  raw: string | undefined
+): Effect.Effect<string, ApiBadRequestError> =>
+  Effect.gen(function*(_) {
+    const value = raw?.trim() ?? defaultActorUsername
+    const username = value.length === 0 ? defaultActorUsername : value
+    if (/[\s/]/.test(username)) {
+      return yield* _(
+        Effect.fail(
+          new ApiBadRequestError({
+            message: "Federation actor username must not include spaces or slashes."
+          })
+        )
+      )
+    }
+    return username
+  })
+
+const normalizeHttpUrl = (
+  raw: string,
+  context: FederationContext,
+  label: string
+): Effect.Effect<string, ApiBadRequestError> =>
+  Effect.gen(function*(_) {
+    const value = raw.trim()
+    if (value.length === 0) {
+      return yield* _(
+        Effect.fail(
+          new ApiBadRequestError({
+            message: `${label} must be non-empty.`
+          })
+        )
+      )
+    }
+
+    if (value.startsWith("/")) {
+      return `${context.publicOrigin}${value}`
+    }
+
+    const candidate = looksLikeAbsoluteUrl(value)
+      ? value
+      : value.includes(".")
+        ? `https://${value}`
+        : null
+
+    if (candidate === null) {
+      return yield* _(
+        Effect.fail(
+          new ApiBadRequestError({
+            message: `${label} must be an absolute URL or "/path" relative to the configured domain.`
+          })
+        )
+      )
+    }
+
+    return yield* _(
+      Effect.try({
+        try: () => {
+          const parsed = new URL(candidate)
+          if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            throw new Error(`${label} must use http:// or https://.`)
+          }
+
+          if (parsed.hostname.endsWith(".example")) {
+            const replacement = new URL(context.publicOrigin)
+            parsed.protocol = replacement.protocol
+            parsed.host = replacement.host
+          }
+
+          return parsed.toString()
+        },
+        catch: (cause) =>
+          new ApiBadRequestError({
+            message: cause instanceof Error ? cause.message : String(cause)
+          })
+      })
+    )
+  })
+
+export const makeFederationContext = (
+  input: FederationContextInput
+): Effect.Effect<FederationContext, ApiBadRequestError> =>
+  Effect.gen(function*(_) {
+    const publicOrigin = yield* _(normalizeOrigin(input.publicOrigin))
+    const actorUsername = yield* _(normalizeActorUsername(input.actorUsername))
+
+    return {
+      publicOrigin,
+      actorUsername,
+      actorId: `${publicOrigin}/v1/federation/actor`,
+      inbox: `${publicOrigin}/v1/federation/inbox`,
+      outbox: `${publicOrigin}/v1/federation/outbox`,
+      followers: `${publicOrigin}/v1/federation/followers`,
+      following: `${publicOrigin}/v1/federation/following`,
+      liked: `${publicOrigin}/v1/federation/liked`,
+      followsActivityPrefix: `${publicOrigin}/v1/federation/activities/follows`
+    }
+  })
+
+export const makeFederationActorDocument = (
+  context: FederationContext
+): ActivityPubPerson => ({
+  "@context": "https://www.w3.org/ns/activitystreams",
+  type: "Person",
+  id: context.actorId,
+  name: "docker-git task feed",
+  preferredUsername: context.actorUsername,
+  summary: "docker-git ActivityPub actor for task and issue stream subscriptions.",
+  inbox: context.inbox,
+  outbox: context.outbox,
+  followers: context.followers,
+  following: context.following,
+  liked: context.liked
+})
+
+export const makeFederationOutboxCollection = (
+  context: FederationContext
+): ActivityPubOrderedCollection => {
+  const orderedItems = listFollowSubscriptions().map((subscription) => subscription.activity)
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    type: "OrderedCollection",
+    id: context.outbox,
+    totalItems: orderedItems.length,
+    orderedItems
+  }
+}
+
+export const makeFederationFollowersCollection = (
+  context: FederationContext
+): ActivityPubOrderedCollection => ({
+  "@context": "https://www.w3.org/ns/activitystreams",
+  type: "OrderedCollection",
+  id: context.followers,
+  totalItems: 0,
+  orderedItems: []
+})
+
+export const makeFederationFollowingCollection = (
+  context: FederationContext
+): ActivityPubOrderedCollection => {
+  const orderedItems = listFollowSubscriptions()
+    .filter((subscription) => subscription.status === "accepted")
+    .map((subscription) => subscription.object)
+
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    type: "OrderedCollection",
+    id: context.following,
+    totalItems: orderedItems.length,
+    orderedItems
+  }
+}
+
+export const makeFederationLikedCollection = (
+  context: FederationContext
+): ActivityPubOrderedCollection => ({
+  "@context": "https://www.w3.org/ns/activitystreams",
+  type: "OrderedCollection",
+  id: context.liked,
+  totalItems: 0,
+  orderedItems: []
+})
 
 const lookupFollowByReference = (
   reference: string
@@ -314,24 +524,21 @@ export const ingestFederationInbox = (
 // QUOTE(ТЗ): "добавить поддержку follow, чтобы можно было подписатся на отдачу задач"
 // REF: pr-88-konrad-request
 // SOURCE: n/a
-// FORMAT THEOREM: ∀r: valid(r) → ∃s: s.status = pending ∧ s.actor = r.actor ∧ s.object = r.object
+// FORMAT THEOREM: ∀r: valid(r) → ∃s: s.status = pending ∧ s.object = r.object
 // PURITY: SHELL
 // EFFECT: Effect<FollowSubscriptionCreated, ApiBadRequestError | ApiConflictError>
 // INVARIANT: non-rejected actor/object pairs are unique
 // COMPLEXITY: O(1)
 export const createFollowSubscription = (
-  request: CreateFollowRequest
+  request: CreateFollowRequest,
+  context: FederationContext
 ): Effect.Effect<FollowSubscriptionCreated, ApiBadRequestError | ApiConflictError> =>
   Effect.gen(function*(_) {
-    const actor = request.actor.trim()
-    if (actor.length === 0) {
-      return yield* _(Effect.fail(new ApiBadRequestError({ message: "Follow actor must be non-empty." })))
-    }
+    const actor = request.actor?.trim()
+      ? yield* _(normalizeHttpUrl(request.actor, context, "Follow actor"))
+      : context.actorId
 
-    const object = request.object.trim()
-    if (object.length === 0) {
-      return yield* _(Effect.fail(new ApiBadRequestError({ message: "Follow object must be non-empty." })))
-    }
+    const object = yield* _(normalizeHttpUrl(request.object, context, "Follow object"))
 
     const key = followKey(actor, object)
     const existingId = followByActorObject.get(key)
@@ -351,8 +558,12 @@ export const createFollowSubscription = (
     const to = cleanToRecipients(request.to)
     const capability = request.capability?.trim()
     const inbox = request.inbox?.trim()
+    const normalizedInbox = inbox && inbox.length > 0
+      ? yield* _(normalizeHttpUrl(inbox, context, "Follow inbox"))
+      : undefined
+
     const id = randomUUID()
-    const activityId = `urn:docker-git:activity:follow:${id}`
+    const activityId = `${context.followsActivityPrefix}/${id}`
     const createdAt = nowIso()
 
     const activity: ActivityPubFollowActivity = {
@@ -370,7 +581,7 @@ export const createFollowSubscription = (
       activityId,
       actor,
       object,
-      inbox: inbox && inbox.length > 0 ? inbox : undefined,
+      inbox: normalizedInbox,
       to,
       capability: capability && capability.length > 0 ? capability : undefined,
       status: "pending",

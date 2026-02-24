@@ -18,7 +18,13 @@ import {
   createFollowSubscription,
   ingestFederationInbox,
   listFederationIssues,
-  listFollowSubscriptions
+  listFollowSubscriptions,
+  makeFederationActorDocument,
+  makeFederationContext,
+  makeFederationFollowersCollection,
+  makeFederationFollowingCollection,
+  makeFederationLikedCollection,
+  makeFederationOutboxCollection
 } from "./services/federation.js"
 import {
   createProjectFromRequest,
@@ -117,6 +123,55 @@ const readCreateProjectRequest = () => HttpServerRequest.schemaBodyJson(CreatePr
 const readCreateFollowRequest = () => HttpServerRequest.schemaBodyJson(CreateFollowRequestSchema)
 const readInboxPayload = () => HttpServerRequest.schemaBodyJson(Schema.Unknown)
 
+const configuredFederationPublicOrigin =
+  process.env["DOCKER_GIT_FEDERATION_PUBLIC_ORIGIN"] ??
+  process.env["DOCKER_GIT_API_PUBLIC_URL"]
+
+const configuredFederationActorUsername =
+  process.env["DOCKER_GIT_FEDERATION_ACTOR"] ?? "docker-git"
+
+const readHeader = (
+  request: HttpServerRequest.HttpServerRequest,
+  key: string
+): string | undefined => {
+  const value = request.headers[key.toLowerCase()]
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
+}
+
+const firstCommaValue = (value: string | undefined): string | undefined => {
+  if (value === undefined) {
+    return undefined
+  }
+  const first = value.split(",")[0]?.trim()
+  return first && first.length > 0 ? first : undefined
+}
+
+const resolveRequestOrigin = (request: HttpServerRequest.HttpServerRequest): string => {
+  const forwardedHost = firstCommaValue(readHeader(request, "x-forwarded-host"))
+  const host = forwardedHost ?? readHeader(request, "host")
+  const proto = firstCommaValue(readHeader(request, "x-forwarded-proto")) ?? "http"
+  if (host === undefined || host.length === 0) {
+    return "http://localhost:3334"
+  }
+  return `${proto}://${host}`
+}
+
+const resolveFederationContext = (
+  request: HttpServerRequest.HttpServerRequest,
+  requestedDomain?: string | undefined
+) => {
+  const fromBody = requestedDomain?.trim()
+  const publicOrigin =
+    fromBody && fromBody.length > 0
+      ? fromBody
+      : configuredFederationPublicOrigin ?? resolveRequestOrigin(request)
+
+  return makeFederationContext({
+    publicOrigin,
+    actorUsername: configuredFederationActorUsername
+  })
+}
+
 export const makeRouter = () => {
   const base = HttpRouter.empty.pipe(
     HttpRouter.get("/", textResponse(uiHtml, "text/html; charset=utf-8", 200)),
@@ -130,11 +185,53 @@ export const makeRouter = () => {
         Effect.catchAll(errorResponse)
       )
     ),
+    HttpRouter.get(
+      "/v1/federation/actor",
+      Effect.gen(function*(_) {
+        const request = yield* _(HttpServerRequest.HttpServerRequest)
+        const context = yield* _(resolveFederationContext(request))
+        return yield* _(jsonResponse(makeFederationActorDocument(context), 200))
+      }).pipe(Effect.catchAll(errorResponse))
+    ),
+    HttpRouter.get(
+      "/v1/federation/outbox",
+      Effect.gen(function*(_) {
+        const request = yield* _(HttpServerRequest.HttpServerRequest)
+        const context = yield* _(resolveFederationContext(request))
+        return yield* _(jsonResponse(makeFederationOutboxCollection(context), 200))
+      }).pipe(Effect.catchAll(errorResponse))
+    ),
+    HttpRouter.get(
+      "/v1/federation/followers",
+      Effect.gen(function*(_) {
+        const request = yield* _(HttpServerRequest.HttpServerRequest)
+        const context = yield* _(resolveFederationContext(request))
+        return yield* _(jsonResponse(makeFederationFollowersCollection(context), 200))
+      }).pipe(Effect.catchAll(errorResponse))
+    ),
+    HttpRouter.get(
+      "/v1/federation/following",
+      Effect.gen(function*(_) {
+        const request = yield* _(HttpServerRequest.HttpServerRequest)
+        const context = yield* _(resolveFederationContext(request))
+        return yield* _(jsonResponse(makeFederationFollowingCollection(context), 200))
+      }).pipe(Effect.catchAll(errorResponse))
+    ),
+    HttpRouter.get(
+      "/v1/federation/liked",
+      Effect.gen(function*(_) {
+        const request = yield* _(HttpServerRequest.HttpServerRequest)
+        const context = yield* _(resolveFederationContext(request))
+        return yield* _(jsonResponse(makeFederationLikedCollection(context), 200))
+      }).pipe(Effect.catchAll(errorResponse))
+    ),
     HttpRouter.post(
       "/v1/federation/follows",
       Effect.gen(function*(_) {
-        const request = yield* _(readCreateFollowRequest())
-        const created = yield* _(createFollowSubscription(request))
+        const requestBody = yield* _(readCreateFollowRequest())
+        const request = yield* _(HttpServerRequest.HttpServerRequest)
+        const context = yield* _(resolveFederationContext(request, requestBody.domain))
+        const created = yield* _(createFollowSubscription(requestBody, context))
         return yield* _(jsonResponse(created, 201))
       }).pipe(Effect.catchAll(errorResponse))
     ),
@@ -152,7 +249,10 @@ export const makeRouter = () => {
         const result = yield* _(ingestFederationInbox(payload))
         return yield* _(jsonResponse({ result }, 202))
       }).pipe(Effect.catchAll(errorResponse))
-    ),
+    )
+  )
+
+  const withProjects = base.pipe(
     HttpRouter.get(
       "/v1/projects",
       listProjects().pipe(
@@ -226,7 +326,7 @@ export const makeRouter = () => {
     )
   )
 
-  const withAgents = base.pipe(
+  const withAgents = withProjects.pipe(
     HttpRouter.post(
       "/v1/projects/:projectId/agents",
       Effect.gen(function*(_) {

@@ -6,7 +6,10 @@ import {
   createFollowSubscription,
   ingestFederationInbox,
   listFederationIssues,
-  listFollowSubscriptions
+  listFollowSubscriptions,
+  makeFederationActorDocument,
+  makeFederationContext,
+  makeFederationFollowingCollection
 } from "../src/services/federation.js"
 
 describe("federation service", () => {
@@ -48,17 +51,28 @@ describe("federation service", () => {
     Effect.gen(function*(_) {
       clearFederationState()
 
-      const created = yield* _(
-        createFollowSubscription({
-          actor: "https://dev.example/users/bot",
-          object: "https://tracker.example/issues/followers",
-          capability: "https://tracker.example/caps/follow",
-          to: ["https://www.w3.org/ns/activitystreams#Public"]
+      const context = yield* _(
+        makeFederationContext({
+          publicOrigin: "https://social.provercoder.ai",
+          actorUsername: "docker-git"
         })
+      )
+
+      const created = yield* _(
+        createFollowSubscription(
+          {
+            object: "https://tracker.provercoder.ai/issues/followers",
+            capability: "https://tracker.provercoder.ai/caps/follow",
+            to: ["https://www.w3.org/ns/activitystreams#Public"]
+          },
+          context
+        )
       )
 
       expect(created.subscription.status).toBe("pending")
       expect(created.activity.type).toBe("Follow")
+      expect(created.activity.id).toContain("https://social.provercoder.ai/v1/federation/activities/follows/")
+      expect(created.activity.actor).toBe("https://social.provercoder.ai/v1/federation/actor")
 
       const accepted = yield* _(
         ingestFederationInbox({
@@ -78,19 +92,89 @@ describe("federation service", () => {
       expect(follows[0]?.status).toBe("accepted")
     }))
 
+  it.effect("replaces .example host by configured domain", () =>
+    Effect.gen(function*(_) {
+      clearFederationState()
+
+      const context = yield* _(
+        makeFederationContext({
+          publicOrigin: "social.provercoder.ai"
+        })
+      )
+
+      const created = yield* _(
+        createFollowSubscription(
+          {
+            actor: "https://dev.example/users/bot",
+            object: "https://tracker.example/issues/followers",
+            inbox: "/v1/federation/inbox"
+          },
+          context
+        )
+      )
+
+      expect(created.activity.actor).toBe("https://social.provercoder.ai/users/bot")
+      expect(created.activity.object).toBe("https://social.provercoder.ai/issues/followers")
+      expect(created.subscription.inbox).toBe("https://social.provercoder.ai/v1/federation/inbox")
+    }))
+
+  it.effect("builds person and following collections in activitypub shape", () =>
+    Effect.gen(function*(_) {
+      clearFederationState()
+
+      const context = yield* _(
+        makeFederationContext({
+          publicOrigin: "https://social.provercoder.ai",
+          actorUsername: "tasks"
+        })
+      )
+
+      const person = makeFederationActorDocument(context)
+      expect(person.type).toBe("Person")
+      expect(person.id).toBe("https://social.provercoder.ai/v1/federation/actor")
+      expect(person.preferredUsername).toBe("tasks")
+      expect(person.followers).toBe("https://social.provercoder.ai/v1/federation/followers")
+
+      const created = yield* _(
+        createFollowSubscription(
+          {
+            object: "https://tracker.provercoder.ai/issues/followers"
+          },
+          context
+        )
+      )
+
+      yield* _(
+        ingestFederationInbox({
+          type: "Accept",
+          object: created.activity.id
+        })
+      )
+
+      const following = makeFederationFollowingCollection(context)
+      expect(following.type).toBe("OrderedCollection")
+      expect(following.totalItems).toBe(1)
+      expect(following.orderedItems[0]).toBe("https://tracker.provercoder.ai/issues/followers")
+    }))
+
   it.effect("rejects duplicate pending follow subscription", () =>
     Effect.gen(function*(_) {
       clearFederationState()
 
+      const context = yield* _(
+        makeFederationContext({
+          publicOrigin: "https://social.provercoder.ai"
+        })
+      )
+
       const request = {
-        actor: "https://dev.example/users/bot",
-        object: "https://tracker.example/issues/followers"
+        object: "https://tracker.provercoder.ai/issues/followers"
       } as const
 
-      yield* _(createFollowSubscription(request))
+      yield* _(createFollowSubscription(request, context))
 
       const duplicateError = yield* _(
-        createFollowSubscription(request).pipe(Effect.flip)
+        createFollowSubscription(request, context).pipe(Effect.flip)
       )
 
       expect(duplicateError._tag).toBe("ApiConflictError")

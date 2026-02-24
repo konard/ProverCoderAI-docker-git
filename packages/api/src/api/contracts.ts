@@ -126,8 +126,9 @@ export type FederationIssueRecord = {
 }
 
 export type CreateFollowRequest = {
-  readonly actor: string
+  readonly actor?: string | undefined
   readonly object: string
+  readonly domain?: string | undefined
   readonly inbox?: string | undefined
   readonly to?: ReadonlyArray<string> | undefined
   readonly capability?: string | undefined
@@ -143,6 +144,28 @@ export type ActivityPubFollowActivity = {
   readonly object: string
   readonly to?: ReadonlyArray<string> | undefined
   readonly capability?: string | undefined
+}
+
+export type ActivityPubPerson = {
+  readonly "@context": "https://www.w3.org/ns/activitystreams"
+  readonly type: "Person"
+  readonly id: string
+  readonly name: string
+  readonly preferredUsername: string
+  readonly summary: string
+  readonly inbox: string
+  readonly outbox: string
+  readonly followers: string
+  readonly following: string
+  readonly liked: string
+}
+
+export type ActivityPubOrderedCollection = {
+  readonly "@context": "https://www.w3.org/ns/activitystreams"
+  readonly type: "OrderedCollection"
+  readonly id: string
+  readonly totalItems: number
+  readonly orderedItems: ReadonlyArray<unknown>
 }
 
 export type FollowSubscription = {

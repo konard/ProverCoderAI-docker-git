@@ -44,8 +44,8 @@ describe("api schemas", () => {
   it.effect("decodes follow payload", () =>
     Effect.sync(() => {
       const result = Schema.decodeUnknownEither(CreateFollowRequestSchema)({
-        actor: "https://example.com/users/alice",
-        object: "https://example.net/tracker/inbox",
+        domain: "social.my-domain.tld",
+        object: "/issues/followers",
         to: ["https://www.w3.org/ns/activitystreams#Public"]
       })
 
@@ -54,8 +54,9 @@ describe("api schemas", () => {
           throw new Error(ParseResult.TreeFormatter.formatIssueSync(error.issue))
         },
         onRight: (value) => {
-          expect(value.actor).toBe("https://example.com/users/alice")
-          expect(value.object).toBe("https://example.net/tracker/inbox")
+          expect(value.actor).toBeUndefined()
+          expect(value.domain).toBe("social.my-domain.tld")
+          expect(value.object).toBe("/issues/followers")
           expect(value.to).toHaveLength(1)
         }
       })

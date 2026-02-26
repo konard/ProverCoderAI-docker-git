@@ -75,7 +75,6 @@ web_search = "live"
 [features]
 shell_snapshot = true
 multi_agent = true
-apps = true
 shell_tool = true
 EOF
     chown 1000:1000 "$CODEX_CONFIG_FILE" || true

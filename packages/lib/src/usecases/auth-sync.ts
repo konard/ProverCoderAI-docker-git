@@ -10,15 +10,17 @@ import { withFsPathContext } from "./runtime.js"
 type CopyDecision = "skip" | "copy"
 
 const defaultEnvContents = "# docker-git env\n# KEY=value\n"
-// CHANGE: enable web search tool in default Codex config (top-level)
-// WHY: avoid deprecated legacy flags and keep config minimal
-// QUOTE(ТЗ): "да убери легаси"
-// REF: user-request-2026-02-05-remove-legacy-web-search
-// SOURCE: n/a
-// FORMAT THEOREM: ∀c: config(c) -> web_search(c)="live"
+// CHANGE: remove apps = true from default Codex config to suppress codex_apps MCP startup warning
+// WHY: apps = true causes Codex to start a codex_apps MCP client that tries to connect to
+//      https://chatgpt.com/backend-api/wham/apps — this fails inside Docker containers and
+//      produces a noisy startup warning. The apps feature is not needed for docker-git workflows.
+// QUOTE(ТЗ): "⚠ MCP client for `codex_apps` failed to start"
+// REF: ProverCoderAI/docker-git#93
+// SOURCE: https://developers.openai.com/codex/config-reference/ — apps feature enables ChatGPT Apps MCP client
+// FORMAT THEOREM: ∀c: config(c) → ¬apps(c) → ¬codex_apps_warning(c)
 // PURITY: CORE
 // EFFECT: n/a
-// INVARIANT: default config stays deterministic
+// INVARIANT: default config stays deterministic and warning-free
 // COMPLEXITY: O(1)
 const defaultCodexConfig = [
   "# docker-git codex config",
@@ -33,7 +35,6 @@ const defaultCodexConfig = [
   "[features]",
   "shell_snapshot = true",
   "multi_agent = true",
-  "apps = true",
   "shell_tool = true"
 ].join("\n")
 

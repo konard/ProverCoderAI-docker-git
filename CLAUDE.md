@@ -265,16 +265,3 @@ describe("Message invariants", () => {
 Каждый эффект — это контролируемое взаимодействие с реальным миром.
 
 ПРИНЦИП: Сначала формализуем, потом программируем.
-
----
-
-Issue to solve: https://github.com/ProverCoderAI/docker-git/issues/93
-Your prepared branch: issue-93-0c57233e3854
-Your prepared working directory: /tmp/gh-issue-solver-1772084016370
-Your forked repository: konard/ProverCoderAI-docker-git
-Original repository (upstream): ProverCoderAI/docker-git
-
-Proceed.
-
-
-Run timestamp: 2026-02-26T05:34:02.736Z

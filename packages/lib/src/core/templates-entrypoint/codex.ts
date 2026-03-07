@@ -248,9 +248,9 @@ elif [[ "$REPO_REF" == refs/pull/*/head ]]; then
     WORKSPACE_INFO_LINE="Контекст workspace: pull request ($REPO_REF)"
   fi
 fi
+MANAGED_START="<!-- docker-git:managed:start -->"
+MANAGED_END="<!-- docker-git:managed:end -->"
 if [[ ! -f "$AGENTS_PATH" ]]; then
-  MANAGED_START="<!-- docker-git:managed:start -->"
-  MANAGED_END="<!-- docker-git:managed:end -->"
   MANAGED_BLOCK="$(cat <<EOF
 $MANAGED_START
 $PROJECT_LINE
@@ -270,8 +270,6 @@ EOF
   chown 1000:1000 "$AGENTS_PATH" || true
 fi
 if [[ -f "$AGENTS_PATH" ]]; then
-  MANAGED_START="<!-- docker-git:managed:start -->"
-  MANAGED_END="<!-- docker-git:managed:end -->"
   MANAGED_BLOCK="$(cat <<EOF
 $MANAGED_START
 $PROJECT_LINE
@@ -318,7 +316,7 @@ if [[ -f "$LEGACY_AGENTS_PATH" && -f "$AGENTS_PATH" ]]; then
 fi`
 
 export const renderEntrypointAgentsNotice = (config: TemplateConfig): string =>
-  entrypointAgentsNoticeTemplate
-    .replaceAll("__CODEX_HOME__", config.codexHome)
-    .replaceAll("__SSH_USER__", config.sshUser)
-    .replaceAll("__TARGET_DIR__", config.targetDir)
+  entrypointAgentsNoticeTemplate.replaceAll("__CODEX_HOME__", config.codexHome).replaceAll(
+    "__SSH_USER__",
+    config.sshUser
+  ).replaceAll("__TARGET_DIR__", config.targetDir)

@@ -32,7 +32,7 @@
     "url": "https://github.com/ProverCoderAI/effect-template/issues"
   },
   "homepage": "https://github.com/ProverCoderAI/effect-template#readme",
-  "packageManager": "pnpm@10.30.3",
+  "packageManager": "pnpm@10.31.0",
   "dependencies": {
     "@effect/cli": "^0.73.2",
     "@effect/cluster": "^0.56.4",

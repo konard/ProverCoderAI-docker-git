@@ -292,28 +292,29 @@ const TuiApp = () => {
 // SOURCE: https://github.com/vadimdemedes/ink/#israwmodesupported
 // FORMAT THEOREM: ∀ env: isTTY(env) → renderTui ∧ ¬isTTY(env) → listProjectStatus
 // INVARIANT: render() is only called when stdin.isTTY ∧ setRawMode ∈ stdin
-export const runMenu = Effect.suspend(() => {
-  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
-    return listProjectStatus
-  }
-
-  return pipe(
-    Effect.sync(() => {
-      resumeTui()
-    }),
-    Effect.zipRight(
-      Effect.tryPromise({
-        try: () => render(React.createElement(TuiApp)).waitUntilExit(),
-        catch: (error) => new InputReadError({ message: error instanceof Error ? error.message : String(error) })
-      })
-    ),
-    Effect.ensuring(
-      Effect.sync(() => {
-        leaveTui()
-      })
-    ),
-    Effect.asVoid
+export const runMenu = pipe(
+  Effect.sync(() => process.stdin.isTTY && typeof process.stdin.setRawMode === "function"),
+  Effect.flatMap((hasTty) =>
+    hasTty
+      ? pipe(
+        Effect.sync(() => {
+          resumeTui()
+        }),
+        Effect.zipRight(
+          Effect.tryPromise({
+            try: () => render(React.createElement(TuiApp)).waitUntilExit(),
+            catch: (error) => new InputReadError({ message: error instanceof Error ? error.message : String(error) })
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            leaveTui()
+          })
+        ),
+        Effect.asVoid
+      )
+      : Effect.ignore(listProjectStatus)
   )
-})
+)
 
 export type MenuError = AppError | InputCancelledError

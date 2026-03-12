@@ -231,10 +231,24 @@ type BuildTemplateConfigInput = {
   readonly agentAuto: boolean
 }
 
-const resolveAgentMode = (raw: RawOptions): AgentMode | undefined => {
-  if (raw.agentClaude) return "claude"
-  if (raw.agentCodex) return "codex"
-  return undefined
+const resolveAutoAgentFlags = (
+  raw: RawOptions
+): Either.Either<{ readonly agentMode: AgentMode | undefined; readonly agentAuto: boolean }, ParseError> => {
+  const requested = raw.agentAutoMode
+  if (requested === undefined) {
+    return Either.right({ agentMode: undefined, agentAuto: false })
+  }
+  if (requested === "auto") {
+    return Either.right({ agentMode: undefined, agentAuto: true })
+  }
+  if (requested === "claude" || requested === "codex") {
+    return Either.right({ agentMode: requested, agentAuto: true })
+  }
+  return Either.left({
+    _tag: "InvalidOption",
+    option: "--auto",
+    reason: "expected one of: claude, codex"
+  })
 }
 
 const buildTemplateConfig = ({
@@ -301,8 +315,7 @@ export const buildCreateCommand = (
     const dockerSharedNetworkName = yield* _(
       nonEmpty("--shared-network", raw.dockerSharedNetworkName, defaultTemplateConfig.dockerSharedNetworkName)
     )
-    const agentMode = resolveAgentMode(raw)
-    const agentAuto = raw.agentAuto ?? false
+    const { agentMode, agentAuto } = yield* _(resolveAutoAgentFlags(raw))
 
     return {
       _tag: "Create",

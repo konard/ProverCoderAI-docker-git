@@ -4,7 +4,7 @@ import * as FileSystem from "@effect/platform/FileSystem"
 import * as Path from "@effect/platform/Path"
 import { Effect } from "effect"
 
-import type { CreateCommand } from "../../core/domain.js"
+import type { CreateCommand, ParseError } from "../../core/domain.js"
 import { deriveRepoPathParts } from "../../core/domain.js"
 import { runCommandWithExitCodes } from "../../shell/command-runner.js"
 import { ensureDockerDaemonAccess } from "../../shell/docker.js"
@@ -18,6 +18,7 @@ import type {
   PortProbeError
 } from "../../shell/errors.js"
 import { logDockerAccessInfo } from "../access-log.js"
+import { resolveAutoAgentMode } from "../agent-auto-select.js"
 import { renderError } from "../errors.js"
 import { applyGithubForkConfig } from "../github-fork.js"
 import { defaultProjectsRoot } from "../menu-helpers.js"
@@ -39,6 +40,7 @@ type CreateProjectError =
   | DockerAccessError
   | DockerCommandError
   | PortProbeError
+  | ParseError
   | PlatformError
 
 type CreateContext = {
@@ -209,7 +211,9 @@ const runCreateProject = (
     const resolvedOutDir = path.resolve(ctx.resolveRootPath(command.outDir))
 
     const resolvedConfig = yield* _(resolveCreateConfig(command, ctx, resolvedOutDir))
-    const { globalConfig, projectConfig } = buildProjectConfigs(path, ctx.baseDir, resolvedOutDir, resolvedConfig)
+    const resolvedAgentMode = yield* _(resolveAutoAgentMode(resolvedConfig))
+    const finalConfig = resolvedAgentMode === undefined ? resolvedConfig : { ...resolvedConfig, agentMode: resolvedAgentMode }
+    const { globalConfig, projectConfig } = buildProjectConfigs(path, ctx.baseDir, resolvedOutDir, finalConfig)
 
     yield* _(migrateProjectOrchLayout(ctx.baseDir, globalConfig, ctx.resolveRootPath))
 
@@ -221,8 +225,8 @@ const runCreateProject = (
     )
     yield* _(logCreatedProject(resolvedOutDir, createdFiles))
 
-    const hasAgent = resolvedConfig.agentMode !== undefined
-    const waitForAgent = hasAgent && (resolvedConfig.agentAuto ?? false)
+    const hasAgent = finalConfig.agentMode !== undefined
+    const waitForAgent = hasAgent && (finalConfig.agentAuto ?? false)
 
     yield* _(
       runDockerUpIfNeeded(resolvedOutDir, projectConfig, {

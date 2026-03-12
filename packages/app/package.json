@@ -56,7 +56,7 @@
     "access": "public"
   },
   "homepage": "https://github.com/ProverCoderAI/docker-git#readme",
-  "packageManager": "pnpm@10.31.0",
+  "packageManager": "pnpm@10.32.1",
   "dependencies": {
     "@effect/cli": "^0.73.2",
     "@effect/cluster": "^0.56.4",
@@ -89,26 +89,26 @@
     "@prover-coder-ai/eslint-plugin-suggest-members": "^0.0.25",
     "@ton-ai-core/vibecode-linter": "^1.0.11",
     "@types/node": "^24.12.0",
-    "@typescript-eslint/eslint-plugin": "^8.56.1",
-    "@typescript-eslint/parser": "^8.56.1",
-    "typescript-eslint": "^8.56.1",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.57.0",
+    "typescript-eslint": "^8.57.0",
+    "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^10.0.3",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-codegen": "0.34.1",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-simple-import-sort": "^12.1.1",
-    "eslint-plugin-sonarjs": "^4.0.1",
+    "eslint-plugin-sonarjs": "^4.0.2",
     "eslint-plugin-sort-destructure-keys": "^3.0.0",
     "eslint-plugin-unicorn": "^63.0.0",
-    "@vitest/eslint-plugin": "^1.6.9",
+    "@vitest/eslint-plugin": "^1.6.11",
     "@types/react": "^19.2.14",
     "biome": "npm:@biomejs/biome@^2.4.6",
     "globals": "^17.4.0",
     "jscpd": "^4.0.8",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1",
+    "vite": "^8.0.0",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   }
 }

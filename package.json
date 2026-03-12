@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Monorepo workspace for effect-template",
-  "packageManager": "pnpm@10.31.0",
+  "packageManager": "pnpm@10.32.1",
   "workspaces": [
     "packages/api",
     "packages/app",

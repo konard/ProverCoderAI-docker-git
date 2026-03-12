@@ -32,6 +32,7 @@ docker-git clone https://github.com/ProverCoderAI/docker-git/issues/122 --force 
 
 - `--force` пересоздаёт окружение и удаляет volumes проекта.
 - `--mcp-playwright` включает Playwright MCP и Chromium sidecar для браузерной автоматизации.
+- `--auto` работает вместе с `--claude` или `--codex`: агент выполняет задачу автономно, а `docker-git` ждёт завершения и очищает контейнер.
 
 ## Подробности
 

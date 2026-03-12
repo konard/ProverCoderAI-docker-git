@@ -1,248 +1,75 @@
 # docker-git
 
-`docker-git` generates a disposable Docker development environment per repository (or empty workspace) and stores it under a single projects root (default: `~/.docker-git`).
+`docker-git` поднимает отдельную Docker-среду для каждого репозитория, issue или PR.
+Проекты по умолчанию хранятся в `~/.docker-git`.
 
-Key goals:
-- Functional Core, Imperative Shell implementation (pure templates + typed orchestration).
-- Per-project `.orch/` directory (env + local state), while still allowing shared credentials across containers.
-- Shared package caches (`pnpm`/`npm`/`yarn`) across all project containers.
-- Optional Playwright MCP + Chromium sidecar so Codex and Claude Code can do browser automation.
+## Зачем это нужно
 
-## Quickstart
+- Один репозиторий — один контейнер, без конфликтов между проектами.
+- Можно открывать GitHub issue и PR как отдельные рабочие среды.
+- Для существующего проекта можно отдельно включить Playwright MCP.
 
-From this repo:
+## Что нужно
 
-```bash
-pnpm install
+- Docker Engine или Docker Desktop
+- Доступ к Docker без `sudo`
+- Node.js и `npm`
 
-# Interactive TUI menu (default)
-pnpm run docker-git
-
-# Create an empty workspace container (no git clone)
-pnpm run docker-git create
-
-# Clone a repo into its own container (creates under ~/.docker-git)
-pnpm run docker-git clone https://github.com/agiens/crm/tree/vova-fork --force
-
-# Clone an issue URL (creates isolated workspace + issue branch)
-pnpm run docker-git clone https://github.com/agiens/crm/issues/123 --force
-
-# Open an existing docker-git project by repo/issue URL (runs up + tmux attach)
-pnpm run docker-git open https://github.com/agiens/crm/issues/123
-
-# Reset only project env defaults (keep workspace volume/data)
-pnpm run docker-git clone https://github.com/agiens/crm/issues/123 --force-env
-
-# Same, but also enable Playwright MCP + Chromium sidecar for Codex/Claude
-pnpm run docker-git clone https://github.com/agiens/crm/tree/vova-fork --force --mcp-playwright
-```
-
-## API Docker (separate runtime)
-
-HTTP API (`packages/api`) has a dedicated Docker image and compose file:
+## Установка
 
 ```bash
-docker compose -f docker-compose.api.yml up -d --build
-curl -s http://127.0.0.1:3334/health
+npm i -g @prover-coder-ai/docker-git
 ```
 
-By default API port `3334` is published to host (`127.0.0.1:3334`).
+Альтернатива:
 
-Useful env overrides:
-- `DOCKER_GIT_API_BIND_HOST` (default: `127.0.0.1`)
-- `DOCKER_GIT_API_PORT` (default: `3334`)
-- `DOCKER_GIT_PROJECTS_ROOT_HOST` (host path, default: `/home/dev/.docker-git`)
-- `DOCKER_GIT_PROJECTS_ROOT` (container path, default: `/home/dev/.docker-git`)
-
-Detailed federation subscription workflow and JSON examples are documented in `packages/api/README.md`.
-
-## Parallel Issues / PRs
-
-When you clone GitHub issue or PR URLs, docker-git creates isolated project paths and container names:
-- `.../issues/123` -> `<projectsRoot>/<owner>/<repo>/issue-123` (branch `issue-123`)
-- `.../pull/45` -> `<projectsRoot>/<owner>/<repo>/pr-45` (ref `refs/pull/45/head`)
-
-This lets you run multiple issues/PRs for the same repository in parallel without container/path collisions.
-
-Force modes:
-- `--force`: overwrite managed files and wipe compose volumes (`docker compose down -v`).
-- `--force-env`: reset only project env defaults and recreate containers without wiping volumes.
-
-Agent context for issue workspaces:
-- Global `${CODEX_HOME}/AGENTS.md` includes workspace path + issue/PR context.
-
-## Projects Root Layout
-
-The projects root is:
-- `~/.docker-git` by default
-- Override with `DOCKER_GIT_PROJECTS_ROOT=/some/path`
-
-Structure (simplified):
-
-```text
-~/.docker-git/
-  authorized_keys
-  .orch/
-    env/
-      global.env      # shared tokens/keys (GitHub, Git, Claude) with labels
-    auth/
-      codex/          # shared Codex auth/config (when CODEX_SHARE_AUTH=1)
-      gh/             # GH CLI auth cache for OAuth login container
-  .cache/
-    git-mirrors/      # shared git clone mirrors
-    packages/         # shared pnpm/npm/yarn caches
-  <owner>/<repo>/
-    docker-compose.yml
-    Dockerfile
-    entrypoint.sh
-    docker-git.json
-    .orch/
-      env/
-        project.env   # per-project env knobs (see below)
-      auth/
-        codex/        # project-local Codex state (sessions/logs/tmp/etc)
+```bash
+pnpm add -g @prover-coder-ai/docker-git
 ```
 
-## Codex Auth: Shared Credentials, Per-Project Sessions
+Проверка:
 
-Default behavior:
-- Shared credentials live in `/home/dev/.codex-shared/auth.json` (mounted from `<projectsRoot>/.orch/auth/codex`).
-- Each project keeps its own Codex state under `/home/dev/.codex/` (mounted from project `.orch/auth/codex`).
-- The entrypoint links `/home/dev/.codex/auth.json -> /home/dev/.codex-shared/auth.json`.
+```bash
+docker-git --help
+```
 
-This avoids `refresh_token` rotation issues that can happen when copying `auth.json` into every project while still keeping session state isolated per project.
+## Быстрый старт
 
-Disable sharing (per-project auth):
-- Set `CODEX_SHARE_AUTH=0` in `.orch/env/project.env`.
+Авторизация GitHub:
 
-## Claude Code Defaults
+```bash
+docker-git auth github login --web
+```
 
-On container start, docker-git syncs Claude Code user settings under `$CLAUDE_CONFIG_DIR/settings.json`:
-- `permissions.defaultMode = "bypassPermissions"` so local disposable containers behave like docker-git Codex containers (no permission prompts).
-- Existing unrelated Claude settings are preserved.
+Клонировать репозиторий в отдельную среду:
 
-## Playwright MCP (Chromium Sidecar)
+```bash
+docker-git clone https://github.com/org/repo
+```
 
-Enable during create/clone:
-- Add `--mcp-playwright`
+Клонировать issue как отдельную среду:
 
-Enable for an existing project directory (preserves `.orch/env/project.env` and volumes):
-- `docker-git mcp-playwright [<url>] [--project-dir <path>]`
+```bash
+docker-git clone https://github.com/org/repo/issues/123
+```
 
-This will:
-- Create a Chromium sidecar container: `dg-<repo>-browser`
-- Configure Codex MCP server `playwright` inside the dev container
-- Configure Claude Code MCP server `playwright` inside `$CLAUDE_CONFIG_DIR/.claude.json`
-- Provide a wrapper `docker-git-playwright-mcp` inside the dev container
+Открыть уже созданный проект:
 
-Template attribute behavior:
-- `--mcp-playwright` sets `enableMcpPlaywright=true` in `docker-git.json`.
-- On container start, docker-git syncs Playwright MCP config for both Codex and Claude based on this attribute/env.
+```bash
+docker-git open https://github.com/org/repo/issues/123
+```
 
-Concurrency (many Codex sessions):
-- Default is safe for many sessions: `MCP_PLAYWRIGHT_ISOLATED=1`
-- Each Codex session gets its own browser context (incognito) to reduce cross-session interference.
-- If you want a shared browser context (shared cookies/login), set `MCP_PLAYWRIGHT_ISOLATED=0` (not recommended with multiple concurrent sessions).
+Включить Playwright MCP для существующего проекта:
 
-## Runtime Env Knobs (per project)
+```bash
+docker-git mcp-playwright --project-dir .
+```
 
-Edit: `<projectDir>/.orch/env/project.env`
+## Где лежат проекты
 
-Common toggles:
-- `CODEX_SHARE_AUTH=1|0` (default: `1`)
-- `CODEX_AUTO_UPDATE=1|0` (default: `1`)
-- `CLAUDE_AUTO_SYSTEM_PROMPT=1|0` (default: `1`, auto-attach managed system prompt to `claude`)
-- `DOCKER_GIT_ZSH_AUTOSUGGEST=1|0` (default: `1`)
-- `MCP_PLAYWRIGHT_ISOLATED=1|0` (default: `1`)
-- `MCP_PLAYWRIGHT_CDP_ENDPOINT=http://...` (override CDP endpoint if needed)
-- `PNPM_STORE_DIR=/home/dev/.docker-git/.cache/packages/pnpm/store` (default shared store)
-- `NPM_CONFIG_CACHE=/home/dev/.docker-git/.cache/packages/npm` (default shared cache)
-- `YARN_CACHE_FOLDER=/home/dev/.docker-git/.cache/packages/yarn` (default shared cache)
+По умолчанию: `~/.docker-git`
 
-## Compose Network Mode
+## Подробности
 
-Default mode is shared:
-- `--network-mode shared` (default)
-- Shared compose network name: `--shared-network docker-git-shared`
-
-Shared mode keeps one external Docker network for all docker-git projects, which reduces address pool pressure when many projects are created.
-
-If you need strict per-project isolation:
-- `--network-mode project`
-
-In project mode, each project uses `<service>-net` (Docker-managed bridge network).
-
-## Troubleshooting
-
-MCP errors in `codex` UI:
-- `No such file or directory (os error 2)` for `playwright`:
-  - `~/.codex/config.toml` contains `[mcp_servers.playwright]`, but the container was created without `--mcp-playwright`.
-  - Fix (recommended): run `docker-git mcp-playwright [<url>]` to enable it for the existing project.
-  - Fix (recreate): recreate with `--force-env --mcp-playwright` (keeps volumes) or `--force --mcp-playwright` (wipes volumes).
-- `handshaking ... initialize response`:
-  - The configured MCP command is not a real MCP server (example: `command="echo"`).
-
-MCP errors in `claude` UI:
-- `MCP server "playwright" not found`:
-  - The container/project was created without `--mcp-playwright` (or `enableMcpPlaywright=false` in `docker-git.json`).
-  - Fix: run `docker-git mcp-playwright [<url>]` or recreate/apply with `--mcp-playwright`.
-
-Docker permission error (`/var/run/docker.sock`):
-- Symptom:
-  - `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`
-- Check:
-  ```bash
-  id
-  ls -l /var/run/docker.sock
-  docker version
-  ```
-- Fix (works in `fish` and `bash`):
-  ```bash
-  sudo chgrp docker /var/run/docker.sock
-  sudo chmod 660 /var/run/docker.sock
-  sudo mkdir -p /etc/systemd/system/docker.socket.d
-  printf '[Socket]\nSocketGroup=docker\nSocketMode=0660\n' | sudo tee /etc/systemd/system/docker.socket.d/override.conf >/dev/null
-  sudo systemctl daemon-reload
-  sudo systemctl restart docker.socket docker
-  ```
-- Verify:
-  ```bash
-  ls -l /var/run/docker.sock
-  docker version
-  ```
-- Note:
-  - Do not run `pnpm run docker-git ...` with `sudo`.
-
-Docker network pool exhausted (`all predefined address pools have been fully subnetted`):
-- Symptom:
-  - `failed to create network ... all predefined address pools have been fully subnetted`
-- Quick recovery:
-  ```bash
-  docker network prune -f
-  ```
-- Long-term fix:
-  - Configure Docker daemon `default-address-pools` in `/etc/docker/daemon.json`.
-  - Prefer `docker-git` shared network mode (`--network-mode shared`).
-
-Clone auth error (`Invalid username or token`):
-- Symptom:
-  - `remote: Invalid username or token. Password authentication is not supported for Git operations.`
-- Check and fix token:
-  ```bash
-  pnpm run docker-git auth github status
-  pnpm run docker-git auth github logout
-  pnpm run docker-git auth github login --web
-  pnpm run docker-git auth github status
-  ```
-- Token requirements:
-  - Token must have access to the target repository.
-  - For org repositories with SSO/SAML, authorize the token for that organization.
-  - Recommended scopes: `repo,workflow,read:org`.
-
-## Security Notes
-
-The generated Codex config uses:
-- `sandbox_mode = "danger-full-access"`
-- `approval_policy = "never"`
-
-This is intended for local disposable containers. Do not reuse these defaults for untrusted code.
+- Все команды и флаги: `docker-git --help`
+- API-документация: [packages/api/README.md](packages/api/README.md)

@@ -120,6 +120,15 @@ describe("enableMcpPlaywrightProjectFiles", () => {
         const dockerfileAfter = yield* _(fs.readFileString(path.join(outDir, "Dockerfile")))
         expect(dockerfileAfter).toContain("@playwright/mcp")
 
+        // CHANGE: verify retry logic is included in docker-git-playwright-mcp wrapper
+        // WHY: issue-123 requires retry mechanism to handle browser sidecar startup delays
+        // QUOTE(issue-123): "Почему MCP сервер лежит с ошибкой?"
+        // REF: issue-123
+        expect(dockerfileAfter).toContain("MCP_PLAYWRIGHT_RETRY_ATTEMPTS")
+        expect(dockerfileAfter).toContain("MCP_PLAYWRIGHT_RETRY_DELAY")
+        expect(dockerfileAfter).toContain("fetch_cdp_version()")
+        expect(dockerfileAfter).toContain("waiting for browser sidecar")
+
         const browserDockerfileExists = yield* _(fs.exists(path.join(outDir, "Dockerfile.browser")))
         const startExtraExists = yield* _(fs.exists(path.join(outDir, "mcp-playwright-start-extra.sh")))
         expect(browserDockerfileExists).toBe(true)

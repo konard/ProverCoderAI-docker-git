@@ -81,6 +81,8 @@ Container runtime env (set via .orch/env/project.env):
   DOCKER_GIT_ZSH_AUTOSUGGEST_STRATEGY=...  Suggestion sources (default: history completion)
   MCP_PLAYWRIGHT_ISOLATED=1|0           Isolated browser contexts (recommended for many Codex; default: 1)
   MCP_PLAYWRIGHT_CDP_ENDPOINT=http://...  Override CDP endpoint (default: http://dg-<repo>-browser:9223)
+  MCP_PLAYWRIGHT_RETRY_ATTEMPTS=<n>     Retry attempts for browser sidecar startup wait (default: 10)
+  MCP_PLAYWRIGHT_RETRY_DELAY=<seconds>  Delay between retry attempts (default: 2)
 
 Auth providers:
   github, gh         GitHub CLI auth (tokens saved to env file)

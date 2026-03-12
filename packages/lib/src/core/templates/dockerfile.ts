@@ -105,8 +105,39 @@ if [[ -z "$CDP_ENDPOINT" ]]; then
   CDP_ENDPOINT="http://__SERVICE_NAME__-browser:9223"
 fi
 
+# CHANGE: add retry logic for browser sidecar startup wait
+# WHY: the browser container may take time to initialize, causing MCP server to fail on first attempt
+# QUOTE(issue-123): "Почему MCP сервер лежит с ошибкой?"
+# REF: issue-123
+# SOURCE: n/a
+# FORMAT THEOREM: forall t in [1..max_attempts]: retry(t) -> eventually(cdp_ready) OR timeout_error
+# PURITY: SHELL
+# INVARIANT: script exits only after cdp_ready OR all retries exhausted
+# COMPLEXITY: O(max_attempts * timeout_per_attempt)
+MCP_PLAYWRIGHT_RETRY_ATTEMPTS="\${MCP_PLAYWRIGHT_RETRY_ATTEMPTS:-10}"
+MCP_PLAYWRIGHT_RETRY_DELAY="\${MCP_PLAYWRIGHT_RETRY_DELAY:-2}"
+
+fetch_cdp_version() {
+  curl -sSf --connect-timeout 3 --max-time 10 -H 'Host: 127.0.0.1:9222' "\${CDP_ENDPOINT%/}/json/version" 2>/dev/null
+}
+
+JSON=""
+for attempt in $(seq 1 "$MCP_PLAYWRIGHT_RETRY_ATTEMPTS"); do
+  if JSON="$(fetch_cdp_version)"; then
+    break
+  fi
+  if [[ "$attempt" -lt "$MCP_PLAYWRIGHT_RETRY_ATTEMPTS" ]]; then
+    echo "docker-git-playwright-mcp: waiting for browser sidecar (attempt $attempt/$MCP_PLAYWRIGHT_RETRY_ATTEMPTS)..." >&2
+    sleep "$MCP_PLAYWRIGHT_RETRY_DELAY"
+  fi
+done
+
+if [[ -z "$JSON" ]]; then
+  echo "docker-git-playwright-mcp: failed to connect to CDP endpoint $CDP_ENDPOINT after $MCP_PLAYWRIGHT_RETRY_ATTEMPTS attempts" >&2
+  exit 1
+fi
+
 # kechangdev/browser-vnc binds Chromium CDP on 127.0.0.1:9222; it also host-checks HTTP requests.
-JSON="$(curl -sSf --connect-timeout 3 --max-time 10 -H 'Host: 127.0.0.1:9222' "\${CDP_ENDPOINT%/}/json/version")"
 WS_URL="$(printf "%s" "$JSON" | node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(j.webSocketDebuggerUrl || "")')"
 if [[ -z "$WS_URL" ]]; then
   echo "docker-git-playwright-mcp: webSocketDebuggerUrl missing" >&2

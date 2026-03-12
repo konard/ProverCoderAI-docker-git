@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssh-server git ca-certificates nodejs npm \
+    openssh-server git ca-certificates nodejs npm sshpass \
  && rm -rf /var/lib/apt/lists/*
 
 # Tooling: pnpm + Codex CLI

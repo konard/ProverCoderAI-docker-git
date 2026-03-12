@@ -25,7 +25,7 @@ type CodexAccountContext = {
 
 const codexImageName = "docker-git-auth-codex:latest"
 const codexImageDir = ".docker-git/.orch/auth/codex/.image"
-const codexHome = "/root/.codex"
+const codexHome = "/codex-home"
 
 const ensureCodexOrchLayout = (
   cwd: string,

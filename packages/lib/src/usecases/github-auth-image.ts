@@ -8,7 +8,7 @@ import type { CommandFailedError } from "../shell/errors.js"
 import { ensureDockerImage } from "./docker-image.js"
 
 export const ghAuthRoot = ".docker-git/.orch/auth/gh"
-export const ghAuthDir = "/root/.config/gh"
+export const ghAuthDir = "/gh-auth"
 export const ghImageName = "docker-git-auth-gh:latest"
 export const ghImageDir = ".docker-git/.orch/auth/gh/.image"
 

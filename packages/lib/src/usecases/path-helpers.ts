@@ -169,7 +169,13 @@ export const findKeyByPriority = (
       }
     }
 
-    const home = resolveEnvPath("HOME")
+    const dockerGitHomeKey = path.join(defaultProjectsRoot(cwd), spec.devKeyName)
+    const dockerGitHomeExisting = yield* _(findExistingPath(fs, dockerGitHomeKey))
+    if (dockerGitHomeExisting !== null) {
+      return dockerGitHomeExisting
+    }
+
+    const home = resolveHomeDir()
     if (home === null) {
       return null
     }

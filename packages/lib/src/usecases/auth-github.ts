@@ -125,6 +125,7 @@ const resolveGithubTokenFromGh = (
       image: ghImageName,
       hostPath: accountPath,
       containerPath: ghAuthDir,
+      env: `GH_CONFIG_DIR=${ghAuthDir}`,
       args: ["auth", "token"],
       interactive: false
     }),
@@ -149,7 +150,7 @@ const runGithubLogin = (
       image: ghImageName,
       hostPath: accountPath,
       containerPath: ghAuthDir,
-      env: "BROWSER=echo",
+      env: ["BROWSER=echo", `GH_CONFIG_DIR=${ghAuthDir}`],
       args: [
         "auth",
         "login",

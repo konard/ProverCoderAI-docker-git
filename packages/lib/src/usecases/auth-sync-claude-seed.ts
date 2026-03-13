@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import {
   hasClaudeCredentials,
   hasClaudeOauthAccount,
+  hasNonEmptyFile,
   parseJsonRecord,
   resolvePathFromBase
 } from "./auth-sync-helpers.js"
@@ -93,25 +94,6 @@ const syncClaudeCredentialsJson = (
     onWrite: (pathToChmod) => fs.chmod(pathToChmod, 0o600).pipe(Effect.orElseSucceed(() => void 0)),
     seedLabel: "Claude credentials",
     updateLabel: "Claude credentials"
-  })
-
-const hasNonEmptyFile = (
-  fs: FileSystem.FileSystem,
-  filePath: string
-): Effect.Effect<boolean, PlatformError> =>
-  Effect.gen(function*(_) {
-    const exists = yield* _(fs.exists(filePath))
-    if (!exists) {
-      return false
-    }
-
-    const info = yield* _(fs.stat(filePath))
-    if (info.type !== "File") {
-      return false
-    }
-
-    const text = yield* _(fs.readFileString(filePath), Effect.orElseSucceed(() => ""))
-    return text.trim().length > 0
   })
 
 // CHANGE: seed docker-git Claude auth store from host-level Claude files

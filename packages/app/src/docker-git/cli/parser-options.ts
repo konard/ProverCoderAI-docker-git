@@ -34,6 +34,7 @@ interface ValueOptionSpec {
     | "outDir"
     | "projectDir"
     | "lines"
+    | "agentAutoMode"
 }
 
 const valueOptionSpecs: ReadonlyArray<ValueOptionSpec> = [
@@ -67,7 +68,8 @@ const valueOptionSpecs: ReadonlyArray<ValueOptionSpec> = [
   { flag: "-m", key: "message" },
   { flag: "--out-dir", key: "outDir" },
   { flag: "--project-dir", key: "projectDir" },
-  { flag: "--lines", key: "lines" }
+  { flag: "--lines", key: "lines" },
+  { flag: "--auto", key: "agentAutoMode" }
 ]
 
 const valueOptionSpecByFlag: ReadonlyMap<string, ValueOptionSpec> = new Map(
@@ -89,9 +91,7 @@ const booleanFlagUpdaters: Readonly<Record<string, (raw: RawOptions) => RawOptio
   "--no-wipe": (raw) => ({ ...raw, wipe: false }),
   "--web": (raw) => ({ ...raw, authWeb: true }),
   "--include-default": (raw) => ({ ...raw, includeDefault: true }),
-  "--claude": (raw) => ({ ...raw, agentClaude: true }),
-  "--codex": (raw) => ({ ...raw, agentCodex: true }),
-  "--auto": (raw) => ({ ...raw, agentAuto: true })
+  "--auto": (raw) => ({ ...raw, agentAutoMode: "auto" })
 }
 
 const valueFlagUpdaters: { readonly [K in ValueKey]: (raw: RawOptions, value: string) => RawOptions } = {
@@ -122,7 +122,8 @@ const valueFlagUpdaters: { readonly [K in ValueKey]: (raw: RawOptions, value: st
   message: (raw, value) => ({ ...raw, message: value }),
   outDir: (raw, value) => ({ ...raw, outDir: value }),
   projectDir: (raw, value) => ({ ...raw, projectDir: value }),
-  lines: (raw, value) => ({ ...raw, lines: value })
+  lines: (raw, value) => ({ ...raw, lines: value }),
+  agentAutoMode: (raw, value) => ({ ...raw, agentAutoMode: value.trim().toLowerCase() })
 }
 
 export const applyCommandBooleanFlag = (raw: RawOptions, token: string): RawOptions | null => {
@@ -162,17 +163,52 @@ const parseInlineValueToken = (
   return applyCommandValueFlag(raw, flag, inlineValue)
 }
 
-const parseRawOptionsStep = (
-  args: ReadonlyArray<string>,
-  index: number,
-  raw: RawOptions
+const legacyAgentFlagError = (token: string): ParseError | null => {
+  if (token === "--claude") {
+    return {
+      _tag: "InvalidOption",
+      option: token,
+      reason: "use --auto=claude"
+    }
+  }
+  if (token === "--codex") {
+    return {
+      _tag: "InvalidOption",
+      option: token,
+      reason: "use --auto=codex"
+    }
+  }
+  return null
+}
+
+const toParseStep = (
+  parsed: Either.Either<RawOptions, ParseError>,
+  nextIndex: number
+): ParseRawOptionsStep =>
+  Either.isLeft(parsed)
+    ? { _tag: "error", error: parsed.left }
+    : { _tag: "ok", raw: parsed.right, nextIndex }
+
+const parseValueOptionStep = (
+  raw: RawOptions,
+  token: string,
+  value: string | undefined,
+  index: number
 ): ParseRawOptionsStep => {
-  const token = args[index] ?? ""
+  if (value === undefined) {
+    return { _tag: "error", error: { _tag: "MissingOptionValue", option: token } }
+  }
+  return toParseStep(applyCommandValueFlag(raw, token, value), index + 2)
+}
+
+const parseSpecialFlagStep = (
+  raw: RawOptions,
+  token: string,
+  index: number
+): ParseRawOptionsStep | null => {
   const inlineApplied = parseInlineValueToken(raw, token)
   if (inlineApplied !== null) {
-    return Either.isLeft(inlineApplied)
-      ? { _tag: "error", error: inlineApplied.left }
-      : { _tag: "ok", raw: inlineApplied.right, nextIndex: index + 1 }
+    return toParseStep(inlineApplied, index + 1)
   }
 
   const booleanApplied = applyCommandBooleanFlag(raw, token)
@@ -180,19 +216,30 @@ const parseRawOptionsStep = (
     return { _tag: "ok", raw: booleanApplied, nextIndex: index + 1 }
   }
 
+  const deprecatedAgentFlag = legacyAgentFlagError(token)
+  if (deprecatedAgentFlag !== null) {
+    return { _tag: "error", error: deprecatedAgentFlag }
+  }
+
+  return null
+}
+
+const parseRawOptionsStep = (
+  args: ReadonlyArray<string>,
+  index: number,
+  raw: RawOptions
+): ParseRawOptionsStep => {
+  const token = args[index] ?? ""
+  const specialStep = parseSpecialFlagStep(raw, token, index)
+  if (specialStep !== null) {
+    return specialStep
+  }
+
   if (!token.startsWith("-")) {
     return { _tag: "error", error: { _tag: "UnexpectedArgument", value: token } }
   }
 
-  const value = args[index + 1]
-  if (value === undefined) {
-    return { _tag: "error", error: { _tag: "MissingOptionValue", option: token } }
-  }
-
-  const nextRaw = applyCommandValueFlag(raw, token, value)
-  return Either.isLeft(nextRaw)
-    ? { _tag: "error", error: nextRaw.left }
-    : { _tag: "ok", raw: nextRaw.right, nextIndex: index + 2 }
+  return parseValueOptionStep(raw, token, args[index + 1], index)
 }
 
 export const parseRawOptions = (args: ReadonlyArray<string>): Either.Either<RawOptions, ParseError> => {

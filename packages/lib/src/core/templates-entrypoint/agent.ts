@@ -47,8 +47,17 @@ fi`
 
 const renderAgentPromptCommand = (mode: "claude" | "codex"): string =>
   mode === "claude"
-    ? String.raw`claude --dangerously-skip-permissions -p \"\$(cat $AGENT_PROMPT_FILE)\"`
-    : String.raw`codex --approval-mode full-auto \"\$(cat $AGENT_PROMPT_FILE)\"`
+    ? String.raw`claude --dangerously-skip-permissions -p \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
+    : String.raw`codex exec \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
+
+const renderAgentAutoLaunchCommand = (
+  config: TemplateConfig,
+  mode: "claude" | "codex"
+): string =>
+  String
+    .raw`su - ${config.sshUser} -s /bin/bash -c "bash -lc '. /etc/profile 2>/dev/null || true; . \"$AGENT_ENV_FILE\" 2>/dev/null || true; cd \"$TARGET_DIR\" && ${
+    renderAgentPromptCommand(mode)
+  }'"`
 
 const renderAgentModeBlock = (
   config: TemplateConfig,
@@ -60,8 +69,7 @@ const renderAgentModeBlock = (
   return String.raw`"${mode}")
   echo "${startMessage}"
   if [[ -n "$AGENT_PROMPT" ]]; then
-    if su - ${config.sshUser} \
-      -c ". /run/docker-git/agent-env.sh 2>/dev/null; cd '$TARGET_DIR' && ${renderAgentPromptCommand(mode)}"; then
+    if ${renderAgentAutoLaunchCommand(config, mode)}; then
       AGENT_OK=1
     fi
   else

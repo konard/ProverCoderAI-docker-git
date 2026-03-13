@@ -49,6 +49,7 @@ export type CreateProjectRequest = {
   readonly gitTokenLabel?: string | undefined
   readonly codexTokenLabel?: string | undefined
   readonly claudeTokenLabel?: string | undefined
+  readonly agentAutoMode?: string | undefined
   readonly up?: boolean | undefined
   readonly openSsh?: boolean | undefined
   readonly force?: boolean | undefined

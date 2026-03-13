@@ -65,9 +65,7 @@ Options:
   --up | --no-up            Run docker compose up after init (default: --up)
   --ssh | --no-ssh          Auto-open SSH after create/clone (default: clone=--ssh, create=--no-ssh)
   --mcp-playwright | --no-mcp-playwright  Enable Playwright MCP + Chromium sidecar (default: --no-mcp-playwright)
-  --claude                  Start Claude Code agent inside container after clone
-  --codex                   Start Codex agent inside container after clone
-  --auto                    Auto-execute: agent completes the task, creates PR and pushes (requires --claude or --codex)
+  --auto[=claude|codex]     Auto-execute an agent; without value picks by auth, random if both are available
   --force                   Overwrite existing files and wipe compose volumes (docker compose down -v)
   --force-env               Reset project env defaults only (keep workspace volume/data)
   -h, --help                Show this help

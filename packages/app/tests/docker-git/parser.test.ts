@@ -107,6 +107,33 @@ describe("parseArgs", () => {
       expect(command.openSsh).toBe(true)
     }))
 
+  it.effect("parses bare --auto for clone", () =>
+    expectCreateCommand(["clone", "https://github.com/org/repo.git", "--auto"], (command) => {
+      expect(command.config.agentAuto).toBe(true)
+      expect(command.config.agentMode).toBeUndefined()
+    }))
+
+  it.effect("parses --auto=claude for clone", () =>
+    expectCreateCommand(["clone", "https://github.com/org/repo.git", "--auto=claude"], (command) => {
+      expect(command.config.agentAuto).toBe(true)
+      expect(command.config.agentMode).toBe("claude")
+    }))
+
+  it.effect("parses --auto=codex for clone", () =>
+    expectCreateCommand(["clone", "https://github.com/org/repo.git", "--auto=codex"], (command) => {
+      expect(command.config.agentAuto).toBe(true)
+      expect(command.config.agentMode).toBe("codex")
+    }))
+
+  it.effect("rejects legacy --claude flag", () =>
+    expectParseErrorTag(["clone", "https://github.com/org/repo.git", "--claude", "--auto"], "InvalidOption"))
+
+  it.effect("rejects legacy --codex flag", () =>
+    expectParseErrorTag(["clone", "https://github.com/org/repo.git", "--codex", "--auto"], "InvalidOption"))
+
+  it.effect("rejects invalid --auto value", () =>
+    expectParseErrorTag(["clone", "https://github.com/org/repo.git", "--auto=foo"], "InvalidOption"))
+
   it.effect("parses force-env flag for clone", () =>
     expectCreateCommand(["clone", "https://github.com/org/repo.git", "--force-env"], (command) => {
       expect(command.force).toBe(false)

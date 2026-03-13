@@ -25,6 +25,7 @@ export const CreateProjectRequestSchema = Schema.Struct({
   gitTokenLabel: OptionalString,
   codexTokenLabel: OptionalString,
   claudeTokenLabel: OptionalString,
+  agentAutoMode: OptionalString,
   up: OptionalBoolean,
   openSsh: OptionalBoolean,
   force: OptionalBoolean,

@@ -1,4 +1,5 @@
 import type { PlatformError } from "@effect/platform/Error"
+import type * as FileSystem from "@effect/platform/FileSystem"
 import * as ParseResult from "@effect/schema/ParseResult"
 import * as Schema from "@effect/schema/Schema"
 import { Effect, Either } from "effect"
@@ -123,6 +124,25 @@ export const hasClaudeCredentials = (record: JsonRecord | null): boolean =>
 
 export const isGithubTokenKey = (key: string): boolean =>
   key === "GITHUB_TOKEN" || key === "GH_TOKEN" || key.startsWith("GITHUB_TOKEN__")
+
+export const hasNonEmptyFile = (
+  fs: FileSystem.FileSystem,
+  filePath: string
+): Effect.Effect<boolean, PlatformError> =>
+  Effect.gen(function*(_) {
+    const exists = yield* _(fs.exists(filePath))
+    if (!exists) {
+      return false
+    }
+
+    const info = yield* _(fs.stat(filePath))
+    if (info.type !== "File") {
+      return false
+    }
+
+    const text = yield* _(fs.readFileString(filePath), Effect.orElseSucceed(() => ""))
+    return text.trim().length > 0
+  })
 
 export type AuthPaths = {
   readonly envGlobalPath: string

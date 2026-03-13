@@ -25,12 +25,12 @@ type DockerMountBinding = {
   readonly destination: string
 }
 
-const resolveEnvValue = (key: string): string | null => {
+export const resolveDockerEnvValue = (key: string): string | null => {
   const value = process.env[key]?.trim()
   return value && value.length > 0 ? value : null
 }
 
-const trimTrailingSlash = (value: string): string => {
+export const trimDockerPathTrailingSlash = (value: string): string => {
   let end = value.length
   while (end > 0) {
     const char = value[end - 1]
@@ -51,21 +51,21 @@ const translatePathPrefix = (candidate: string, sourcePrefix: string, targetPref
     : null
 
 const resolveContainerProjectsRoot = (): string | null => {
-  const explicit = resolveEnvValue("DOCKER_GIT_PROJECTS_ROOT")
+  const explicit = resolveDockerEnvValue("DOCKER_GIT_PROJECTS_ROOT")
   if (explicit !== null) {
     return explicit
   }
 
-  const home = resolveEnvValue("HOME") ?? resolveEnvValue("USERPROFILE")
-  return home === null ? null : `${trimTrailingSlash(home)}/.docker-git`
+  const home = resolveDockerEnvValue("HOME") ?? resolveDockerEnvValue("USERPROFILE")
+  return home === null ? null : `${trimDockerPathTrailingSlash(home)}/.docker-git`
 }
 
-const resolveProjectsRootHostOverride = (): string | null => resolveEnvValue("DOCKER_GIT_PROJECTS_ROOT_HOST")
+const resolveProjectsRootHostOverride = (): string | null => resolveDockerEnvValue("DOCKER_GIT_PROJECTS_ROOT_HOST")
 
 const resolveCurrentContainerId = (
   cwd: string
 ): Effect.Effect<string | null, never, CommandExecutor.CommandExecutor> => {
-  const fromEnv = resolveEnvValue("HOSTNAME")
+  const fromEnv = resolveDockerEnvValue("HOSTNAME")
   if (fromEnv !== null) {
     return Effect.succeed(fromEnv)
   }

@@ -1,6 +1,7 @@
 import { Either } from "effect"
 
 import { expandContainerHome } from "../usecases/scrap-path.js"
+import { resolveAutoAgentFlags } from "./auto-agent-flags.js"
 import { type RawOptions } from "./command-options.js"
 import {
   type AgentMode,
@@ -231,12 +232,6 @@ type BuildTemplateConfigInput = {
   readonly agentAuto: boolean
 }
 
-const resolveAgentMode = (raw: RawOptions): AgentMode | undefined => {
-  if (raw.agentClaude) return "claude"
-  if (raw.agentCodex) return "codex"
-  return undefined
-}
-
 const buildTemplateConfig = ({
   agentAuto,
   agentMode,
@@ -301,8 +296,7 @@ export const buildCreateCommand = (
     const dockerSharedNetworkName = yield* _(
       nonEmpty("--shared-network", raw.dockerSharedNetworkName, defaultTemplateConfig.dockerSharedNetworkName)
     )
-    const agentMode = resolveAgentMode(raw)
-    const agentAuto = raw.agentAuto ?? false
+    const { agentAuto, agentMode } = yield* _(resolveAutoAgentFlags(raw))
 
     return {
       _tag: "Create",

@@ -64,7 +64,17 @@ RUN claude --version`
 
 const renderDockerfileOpenCode = (): string =>
   `# Tooling: OpenCode (binary)
-RUN curl -fsSL https://opencode.ai/install | HOME=/usr/local bash -s -- --no-modify-path
+RUN set -eu; \
+  for attempt in 1 2 3 4 5; do \
+    if curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 https://opencode.ai/install \
+      | HOME=/usr/local bash -s -- --no-modify-path; then \
+      exit 0; \
+    fi; \
+    echo "opencode install attempt \${attempt} failed; retrying..." >&2; \
+    sleep $((attempt * 2)); \
+  done; \
+  echo "opencode install failed after retries" >&2; \
+  exit 1
 RUN ln -sf /usr/local/.opencode/bin/opencode /usr/local/bin/opencode
 RUN opencode --version`
 

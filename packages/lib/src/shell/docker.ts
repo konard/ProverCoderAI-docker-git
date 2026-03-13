@@ -5,52 +5,50 @@ import type { PlatformError } from "@effect/platform/Error"
 import { Duration, Effect, pipe, Schedule } from "effect"
 
 import { runCommandCapture, runCommandExitCode, runCommandWithExitCodes } from "./command-runner.js"
+import { composeSpec, resolveDockerComposeEnv } from "./docker-compose-env.js"
+import { parseInspectNetworkEntry } from "./docker-inspect-parse.js"
 import { CommandFailedError, DockerCommandError } from "./errors.js"
 
 export { classifyDockerAccessIssue, ensureDockerDaemonAccess } from "./docker-daemon-access.js"
 export { parseDockerPublishedHostPorts, runDockerPsPublishedHostPorts } from "./docker-published-ports.js"
-
-const composeSpec = (cwd: string, args: ReadonlyArray<string>) => ({
-  cwd,
-  command: "docker",
-  args: ["compose", "--ansi", "never", "--progress", "plain", ...args]
-})
-
-const parseInspectNetworkEntry = (line: string): ReadonlyArray<readonly [string, string]> => {
-  const idx = line.indexOf("=")
-  if (idx <= 0) {
-    return []
-  }
-  const network = line.slice(0, idx).trim()
-  const ip = line.slice(idx + 1).trim()
-  if (network.length === 0 || ip.length === 0) {
-    return []
-  }
-  const entry: readonly [string, string] = [network, ip]
-  return [entry]
-}
 
 const runCompose = (
   cwd: string,
   args: ReadonlyArray<string>,
   okExitCodes: ReadonlyArray<number>
 ): Effect.Effect<void, DockerCommandError | PlatformError, CommandExecutor.CommandExecutor> =>
-  runCommandWithExitCodes(
-    composeSpec(cwd, args),
-    okExitCodes,
-    (exitCode) => new DockerCommandError({ exitCode })
-  )
+  Effect.gen(function*(_) {
+    const env = yield* _(resolveDockerComposeEnv(cwd))
+    yield* _(
+      runCommandWithExitCodes(
+        {
+          ...composeSpec(cwd, args),
+          ...(Object.keys(env).length > 0 ? { env } : {})
+        },
+        okExitCodes,
+        (exitCode) => new DockerCommandError({ exitCode })
+      )
+    )
+  })
 
 const runComposeCapture = (
   cwd: string,
   args: ReadonlyArray<string>,
   okExitCodes: ReadonlyArray<number>
 ): Effect.Effect<string, DockerCommandError | PlatformError, CommandExecutor.CommandExecutor> =>
-  runCommandCapture(
-    composeSpec(cwd, args),
-    okExitCodes,
-    (exitCode) => new DockerCommandError({ exitCode })
-  )
+  Effect.gen(function*(_) {
+    const env = yield* _(resolveDockerComposeEnv(cwd))
+    return yield* _(
+      runCommandCapture(
+        {
+          ...composeSpec(cwd, args),
+          ...(Object.keys(env).length > 0 ? { env } : {})
+        },
+        okExitCodes,
+        (exitCode) => new DockerCommandError({ exitCode })
+      )
+    )
+  })
 
 const dockerComposeUpRetrySchedule = Schedule.addDelay(
   Schedule.recurs(2),

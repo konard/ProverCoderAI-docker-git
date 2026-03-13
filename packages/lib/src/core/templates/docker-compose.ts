@@ -45,6 +45,12 @@ const renderAgentAutoEnv = (agentAuto: boolean | undefined): string =>
     ? `      AGENT_AUTO: "1"\n`
     : ""
 
+const renderProjectsRootHostMount = (projectsRoot: string): string =>
+  `\${DOCKER_GIT_PROJECTS_ROOT_HOST:-${projectsRoot}}`
+
+const renderSharedCodexHostMount = (projectsRoot: string): string =>
+  `\${DOCKER_GIT_PROJECTS_ROOT_HOST:-${projectsRoot}}/.orch/auth/codex`
+
 const buildPlaywrightFragments = (
   config: TemplateConfig,
   networkName: string
@@ -126,10 +132,10 @@ ${fragments.maybePlaywrightEnv}${fragments.maybeDependsOn}    env_file:
       - "127.0.0.1:${config.sshPort}:22"
     volumes:
       - ${config.volumeName}:/home/${config.sshUser}
-      - ${config.dockerGitPath}:/home/${config.sshUser}/.docker-git
+      - ${renderProjectsRootHostMount(config.dockerGitPath)}:/home/${config.sshUser}/.docker-git
       - ${config.authorizedKeysPath}:/authorized_keys:ro
       - ${config.codexAuthPath}:${config.codexHome}
-      - ${config.codexSharedAuthPath}:${config.codexHome}-shared
+      - ${renderSharedCodexHostMount(config.dockerGitPath)}:${config.codexHome}-shared
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - ${fragments.networkName}

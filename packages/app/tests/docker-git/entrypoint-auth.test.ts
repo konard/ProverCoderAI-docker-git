@@ -68,6 +68,14 @@ describe("renderEntrypoint auth bridge", () => {
       expect(entrypoint).toContain(
         "docker_git_link_claude_file \"$CLAUDE_CONFIG_DIR/.claude.json\" \"$CLAUDE_HOME_JSON\""
       )
+      expect(entrypoint).toContain("su - dev -s /bin/bash -c \"bash -lc")
+      expect(entrypoint).toContain(". /etc/profile 2>/dev/null || true;")
+      expect(entrypoint).toContain(String.raw`. \"$AGENT_ENV_FILE\" 2>/dev/null || true;`)
+      expect(entrypoint).toContain(
+        String.raw`claude --dangerously-skip-permissions -p \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
+      )
+      expect(entrypoint).toContain(String.raw`codex exec \"\$(cat \"$AGENT_PROMPT_FILE\")\"`)
+      expect(entrypoint).not.toContain("codex --approval-mode full-auto")
       expect(entrypoint).toContain("CLAUDE_GLOBAL_PROMPT_FILE=\"/home/dev/.claude/CLAUDE.md\"")
       expect(entrypoint).toContain("CLAUDE_AUTO_SYSTEM_PROMPT=\"${CLAUDE_AUTO_SYSTEM_PROMPT:-1}\"")
       expect(entrypoint).toContain("docker-git-managed:claude-md")

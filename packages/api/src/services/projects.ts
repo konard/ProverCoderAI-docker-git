@@ -199,6 +199,7 @@ export const createProjectFromRequest = (
       ...(request.gitTokenLabel === undefined ? {} : { gitTokenLabel: request.gitTokenLabel }),
       ...(request.codexTokenLabel === undefined ? {} : { codexTokenLabel: request.codexTokenLabel }),
       ...(request.claudeTokenLabel === undefined ? {} : { claudeTokenLabel: request.claudeTokenLabel }),
+      ...(request.agentAutoMode === undefined ? {} : { agentAutoMode: request.agentAutoMode }),
       ...(request.up === undefined ? {} : { up: request.up }),
       ...(request.openSsh === undefined ? {} : { openSsh: request.openSsh }),
       ...(request.force === undefined ? {} : { force: request.force }),

@@ -150,6 +150,8 @@ describe("prepareProjectFiles", () => {
         expect(composeBefore).toContain("container_name: dg-test")
         expect(composeBefore).toContain("restart: unless-stopped")
         expect(composeBefore).toContain(":/home/dev/.docker-git")
+        expect(composeBefore).toContain("cpus:")
+        expect(composeBefore).toContain('mem_limit: "')
         expect(composeBefore).not.toContain("dg-test-browser")
         expect(composeBefore).toContain("docker-git-shared")
         expect(composeBefore).toContain("external: true")
@@ -177,6 +179,8 @@ describe("prepareProjectFiles", () => {
         expect(composeAfter).toContain("docker-git-shared")
         expect(composeAfter).toContain("external: true")
         expect(readEnableMcpPlaywrightFlag(configAfter)).toBe(true)
+        expect(configAfterText).toContain('"cpuLimit": "30%"')
+        expect(configAfterText).toContain('"ramLimit": "30%"')
       })
     ).pipe(Effect.provide(NodeContext.layer)))
 

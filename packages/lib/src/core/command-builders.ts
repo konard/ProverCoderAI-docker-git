@@ -6,6 +6,8 @@ import { type RawOptions } from "./command-options.js"
 import {
   type AgentMode,
   type CreateCommand,
+  defaultCpuLimit,
+  defaultRamLimit,
   defaultTemplateConfig,
   deriveRepoPathParts,
   deriveRepoSlug,
@@ -13,6 +15,7 @@ import {
   type ParseError,
   resolveRepoInput
 } from "./domain.js"
+import { normalizeCpuLimit, normalizeRamLimit } from "./resource-limits.js"
 import { trimRightChar } from "./strings.js"
 import { normalizeAuthLabel, normalizeGitTokenLabel } from "./token-labels.js"
 
@@ -222,6 +225,8 @@ type BuildTemplateConfigInput = {
   readonly repo: RepoBasics
   readonly names: NameConfig
   readonly paths: PathConfig
+  readonly cpuLimit: string | undefined
+  readonly ramLimit: string | undefined
   readonly dockerNetworkMode: CreateCommand["config"]["dockerNetworkMode"]
   readonly dockerSharedNetworkName: string
   readonly gitTokenLabel: string | undefined
@@ -237,6 +242,8 @@ const buildTemplateConfig = ({
   agentMode,
   claudeAuthLabel,
   codexAuthLabel,
+  cpuLimit,
+  ramLimit,
   dockerNetworkMode,
   dockerSharedNetworkName,
   enableMcpPlaywright,
@@ -263,6 +270,8 @@ const buildTemplateConfig = ({
   codexAuthPath: paths.codexAuthPath,
   codexSharedAuthPath: paths.codexSharedAuthPath,
   codexHome: paths.codexHome,
+  cpuLimit,
+  ramLimit,
   dockerNetworkMode,
   dockerSharedNetworkName,
   enableMcpPlaywright,
@@ -292,6 +301,8 @@ export const buildCreateCommand = (
     const gitTokenLabel = normalizeGitTokenLabel(raw.gitTokenLabel)
     const codexAuthLabel = normalizeAuthLabel(raw.codexTokenLabel)
     const claudeAuthLabel = normalizeAuthLabel(raw.claudeTokenLabel)
+    const cpuLimit = yield* _(normalizeCpuLimit(raw.cpuLimit ?? defaultCpuLimit, "--cpu"))
+    const ramLimit = yield* _(normalizeRamLimit(raw.ramLimit ?? defaultRamLimit, "--ram"))
     const dockerNetworkMode = yield* _(parseDockerNetworkMode(raw.dockerNetworkMode))
     const dockerSharedNetworkName = yield* _(
       nonEmpty("--shared-network", raw.dockerSharedNetworkName, defaultTemplateConfig.dockerSharedNetworkName)
@@ -310,6 +321,8 @@ export const buildCreateCommand = (
         repo,
         names,
         paths,
+        cpuLimit,
+        ramLimit,
         dockerNetworkMode,
         dockerSharedNetworkName,
         gitTokenLabel,

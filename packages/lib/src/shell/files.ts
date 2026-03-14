@@ -1,9 +1,12 @@
+import { availableParallelism, totalmem } from "node:os"
+
 import type { PlatformError } from "@effect/platform/Error"
 import type * as FileSystem from "@effect/platform/FileSystem"
 import type * as Path from "@effect/platform/Path"
 import { Effect, Match } from "effect"
 
 import { type TemplateConfig } from "../core/domain.js"
+import { resolveComposeResourceLimits, withDefaultResourceLimitIntent } from "../core/resource-limits.js"
 import { type FileSpec, planFiles } from "../core/templates.js"
 import { FileExistsError } from "./errors.js"
 import { resolveBaseDir } from "./paths.js"
@@ -104,7 +107,12 @@ export const writeProjectFiles = (
 
     yield* _(fs.makeDirectory(baseDir, { recursive: true }))
 
-    const specs = planFiles(config)
+    const normalizedConfig = withDefaultResourceLimitIntent(config)
+    const composeResourceLimits = resolveComposeResourceLimits(normalizedConfig, {
+      cpuCount: availableParallelism(),
+      totalMemoryBytes: totalmem()
+    })
+    const specs = planFiles(normalizedConfig, composeResourceLimits)
     const created: Array<string> = []
     const existingFilePaths = force ? [] : yield* _(collectExistingFilePaths(fs, path, baseDir, specs))
     const existingSet = new Set(existingFilePaths)

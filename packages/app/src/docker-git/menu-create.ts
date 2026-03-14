@@ -56,6 +56,12 @@ export const buildCreateArgs = (input: CreateInputs): ReadonlyArray<string> => {
   if (input.outDir.length > 0) {
     args.push("--out-dir", input.outDir)
   }
+  if (input.cpuLimit.length > 0) {
+    args.push("--cpu", input.cpuLimit)
+  }
+  if (input.ramLimit.length > 0) {
+    args.push("--ram", input.ramLimit)
+  }
   if (!input.runUp) {
     args.push("--no-up")
   }
@@ -118,6 +124,8 @@ export const resolveCreateInputs = (
     repoUrl,
     repoRef: values.repoRef ?? resolvedRepoRef ?? "main",
     outDir,
+    cpuLimit: values.cpuLimit ?? "",
+    ramLimit: values.ramLimit ?? "",
     runUp: values.runUp !== false,
     enableMcpPlaywright: values.enableMcpPlaywright === true,
     force: values.force === true,
@@ -194,6 +202,16 @@ const applyCreateStep = (input: {
     }),
     Match.when("outDir", () => {
       input.nextValues.outDir = input.buffer.length > 0 ? input.buffer : input.currentDefaults.outDir
+      return true
+    }),
+    Match.when("cpuLimit", () => {
+      input.nextValues.cpuLimit =
+        input.buffer.length > 0 ? input.buffer : input.currentDefaults.cpuLimit
+      return true
+    }),
+    Match.when("ramLimit", () => {
+      input.nextValues.ramLimit =
+        input.buffer.length > 0 ? input.buffer : input.currentDefaults.ramLimit
       return true
     }),
     Match.when("runUp", () => {

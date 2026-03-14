@@ -17,6 +17,7 @@ import { ensureClaudeAuthSeedFromHome, ensureCodexConfigFile } from "./auth-sync
 import { findDockerGitConfigPaths } from "./docker-git-config-search.js"
 import { defaultProjectsRoot, findExistingUpwards } from "./path-helpers.js"
 import { runDockerComposeUpWithPortCheck } from "./projects-up.js"
+import { resolveTemplateResourceLimits } from "./resource-limits.js"
 
 type ApplyProjectFilesError =
   | ShellErrors.ConfigNotFoundError
@@ -42,7 +43,9 @@ export const applyProjectFiles = (
   Effect.gen(function*(_) {
     yield* _(Effect.log(`Applying docker-git config files in ${projectDir}...`))
     const config = yield* _(readProjectConfig(projectDir))
-    const resolvedTemplate = applyTemplateOverrides(config.template, command)
+    const resolvedTemplate = yield* _(
+      resolveTemplateResourceLimits(applyTemplateOverrides(config.template, command))
+    )
     yield* _(writeProjectFiles(projectDir, resolvedTemplate, true))
     yield* _(ensureCodexConfigFile(projectDir, resolvedTemplate.codexAuthPath))
     yield* _(ensureClaudeAuthSeedFromHome(defaultProjectsRoot(projectDir), ".orch/auth/claude"))

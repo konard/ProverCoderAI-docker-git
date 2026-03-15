@@ -78,13 +78,13 @@ const buildPlaywrightFragments = (
   const browserCdpEndpoint = `http://${browserServiceName}:9223`
 
   return {
-    maybeDependsOn: `    depends_on:\n      - ${browserServiceName}\n`,
+    maybeDependsOn: `    depends_on:\n      ${browserServiceName}:\n        condition: service_healthy\n`,
     maybePlaywrightEnv:
       `      MCP_PLAYWRIGHT_ENABLE: "1"\n      MCP_PLAYWRIGHT_CDP_ENDPOINT: "${browserCdpEndpoint}"\n`,
     maybeBrowserService:
       `\n  ${browserServiceName}:\n    build:\n      context: .\n      dockerfile: ${browserDockerfile}\n    container_name: ${browserContainerName}\n    restart: unless-stopped\n${
         renderResourceLimits(resourceLimits)
-      }    environment:\n      VNC_NOPW: "1"\n    shm_size: "2gb"\n    expose:\n      - "9223"\n    volumes:\n      - ${browserVolumeName}:/data\n    networks:\n      - ${networkName}\n`,
+      }    healthcheck:\n      test: ["CMD", "curl", "-sf", "http://localhost:9223/json/version"]\n      interval: 5s\n      timeout: 3s\n      retries: 10\n      start_period: 15s\n    environment:\n      VNC_NOPW: "1"\n    shm_size: "2gb"\n    expose:\n      - "9223"\n    volumes:\n      - ${browserVolumeName}:/data\n    networks:\n      - ${networkName}\n`,
     maybeBrowserVolume: `  ${browserVolumeName}:\n`
   }
 }

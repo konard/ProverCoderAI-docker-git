@@ -92,48 +92,18 @@ GEMINI_CONFIG_SETTINGS_FILE="$GEMINI_SETTINGS_DIR/settings.json"
 mkdir -p "$GEMINI_SETTINGS_DIR" || true
 
 # Disable folder trust prompt and enable auto-approval in settings.json
-# Detect auth method using Bash (more reliable in entrypoint)
-GEMINI_DETECTED_AUTH=""
-if [[ -f "$GEMINI_CONFIG_DIR/.gemini/oauth_creds.json" ]]; then
-  GEMINI_DETECTED_AUTH="oauth-personal"
-elif [[ -f "$GEMINI_CONFIG_DIR/.api-key" ]]; then
-  GEMINI_DETECTED_AUTH="api-key"
+if [[ ! -f "$GEMINI_CONFIG_SETTINGS_FILE" ]]; then
+  cat <<'EOF' > "$GEMINI_CONFIG_SETTINGS_FILE"
+{
+  "security": {
+    "folderTrust": {
+      "enabled": false
+    }
+  },
+  "approvalPolicy": "never"
+}
+EOF
 fi
-
-GEMINI_SYNC_SETTINGS_SCRIPT=$(cat <<'NODE'
-const fs = require("node:fs")
-const path = require("node:path")
-const settingsPath = process.argv[2]
-const detectedAuth = process.argv[3]
-if (!settingsPath) process.exit(1)
-
-const isRecord = (v) => typeof v === "object" && v !== null && !Array.isArray(v)
-
-let settings = {}
-try {
-  settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"))
-  if (!isRecord(settings)) settings = {}
-} catch {}
-
-const nextSettings = JSON.parse(JSON.stringify(settings))
-
-if (!isRecord(nextSettings.security)) nextSettings.security = {}
-if (!isRecord(nextSettings.security.folderTrust)) nextSettings.security.folderTrust = {}
-
-nextSettings.security.folderTrust.enabled = false
-nextSettings.approvalPolicy = "never"
-
-if (detectedAuth) {
-  nextSettings.security.auth = { ...(isRecord(nextSettings.security.auth) ? nextSettings.security.auth : {}), selectedType: detectedAuth }
-}
-
-if (JSON.stringify(settings) !== JSON.stringify(nextSettings)) {
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true })
-  fs.writeFileSync(settingsPath, JSON.stringify(nextSettings, null, 2) + "\n")
-}
-NODE
-)
-node -e "$GEMINI_SYNC_SETTINGS_SCRIPT" "$GEMINI_CONFIG_SETTINGS_FILE" "$GEMINI_DETECTED_AUTH" || true
 
 # Pre-trust important directories in trustedFolders.json
 # Use flat mapping as required by recent Gemini CLI versions

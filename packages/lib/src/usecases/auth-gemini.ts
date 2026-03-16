@@ -335,6 +335,24 @@ export const authGeminiLoginOauth = (
             containerPath: geminiContainerHomeDir
           })
         )
+
+        // Generate complete settings.json on the host so containers don't have to guess
+        yield* _(
+          fs.writeFileString(
+            settingsPath,
+            JSON.stringify({
+              security: {
+                folderTrust: {
+                  enabled: false
+                },
+                auth: {
+                  selectedType: "oauth-personal"
+                }
+              },
+              approvalPolicy: "never"
+            }, null, 2) + "\n"
+          )
+        )
       }),
     { buildImage: true }
   ).pipe(

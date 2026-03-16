@@ -5,13 +5,15 @@
 // PURITY: SHELL (integration tests using real git)
 // INVARIANT: each test uses an isolated temp dir and a local bare repo as fake remote
 
+import * as Command from "@effect/platform/Command"
+import * as CommandExecutor from "@effect/platform/CommandExecutor"
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Path from "@effect/platform/Path"
 import { NodeContext } from "@effect/platform-node"
 import { describe, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
-import { execSync } from "node:child_process"
-import * as nodePath from "node:path"
+import { Effect, pipe } from "effect"
+import * as Chunk from "effect/Chunk"
+import * as Stream from "effect/Stream"
 
 import { stateInit } from "../../src/usecases/state-repo.js"
 
@@ -19,39 +21,109 @@ import { stateInit } from "../../src/usecases/state-repo.js"
 // Helpers
 // ---------------------------------------------------------------------------
 
+// GIT_CONFIG_NOSYSTEM=1 bypasses system-level git hooks (e.g. the docker-git
+// pre-push hook that blocks pushes to `main`).  Only used in test seeding, not
+// in the code-under-test.
+const seedEnv: Record<string, string> = { GIT_CONFIG_NOSYSTEM: "1" }
+
+const collectUint8Array = (chunks: Chunk.Chunk<Uint8Array>): Uint8Array =>
+  Chunk.reduce(chunks, new Uint8Array(), (acc, curr) => {
+    const next = new Uint8Array(acc.length + curr.length)
+    next.set(acc)
+    next.set(curr, acc.length)
+    return next
+  })
+
+const captureGit = (
+  args: ReadonlyArray<string>,
+  cwd: string
+): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
+  Effect.scoped(
+    Effect.gen(function*(_) {
+      const executor = yield* _(CommandExecutor.CommandExecutor)
+      const cmd = pipe(
+        Command.make("git", ...args),
+        Command.workingDirectory(cwd),
+        Command.env(seedEnv),
+        Command.stdout("pipe"),
+        Command.stderr("pipe"),
+        Command.stdin("pipe")
+      )
+      const proc = yield* _(executor.start(cmd))
+      const bytes = yield* _(
+        pipe(proc.stdout, Stream.runCollect, Effect.map((c) => collectUint8Array(c)))
+      )
+      const exitCode = yield* _(proc.exitCode)
+      if (Number(exitCode) !== 0) {
+        return yield* _(Effect.fail(new Error(`git ${args.join(" ")} exited with ${String(exitCode)}`)))
+      }
+      return new TextDecoder("utf-8").decode(bytes).trim()
+    })
+  )
+
+const runShell = (
+  script: string,
+  cwd: string
+): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
+  Effect.scoped(
+    Effect.gen(function*(_) {
+      const executor = yield* _(CommandExecutor.CommandExecutor)
+      const cmd = pipe(
+        Command.make("sh", "-c", script),
+        Command.workingDirectory(cwd),
+        Command.env(seedEnv),
+        Command.stdout("pipe"),
+        Command.stderr("pipe"),
+        Command.stdin("pipe")
+      )
+      const proc = yield* _(executor.start(cmd))
+      const bytes = yield* _(
+        pipe(proc.stdout, Stream.runCollect, Effect.map((c) => collectUint8Array(c)))
+      )
+      const exitCode = yield* _(proc.exitCode)
+      if (Number(exitCode) !== 0) {
+        return yield* _(Effect.fail(new Error(`sh -c '${script}' exited with ${String(exitCode)}`)))
+      }
+      return new TextDecoder("utf-8").decode(bytes).trim()
+    })
+  )
+
 /**
  * Create a local bare git repository that can act as a remote for tests.
  * Optionally seeds it with an initial commit so that `git fetch` has history.
  *
- * @pure false (filesystem + process spawn)
+ * @pure false
  * @invariant returned path is always an absolute path to a bare repo
  */
-// GIT_CONFIG_NOSYSTEM=1 bypasses system-level git hooks (e.g. the docker-git
-// pre-push hook that blocks pushes to `main`).  Only used in test seeding, not
-// in the code-under-test.
-const seedEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }
+const makeFakeRemote = (
+  p: Path.Path,
+  baseDir: string,
+  withInitialCommit: boolean
+): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
+  Effect.gen(function*(_) {
+    const remotePath = p.join(baseDir, "remote.git")
+    yield* _(runShell(
+      `git init --bare --initial-branch=main "${remotePath}" 2>/dev/null || git init --bare "${remotePath}"`,
+      baseDir
+    ))
 
-const makeFakeRemote = (baseDir: string, withInitialCommit: boolean): string => {
-  const remotePath = nodePath.join(baseDir, "remote.git")
-  execSync(`git init --bare --initial-branch=main "${remotePath}" 2>/dev/null || git init --bare "${remotePath}"`, { env: seedEnv })
+    if (withInitialCommit) {
+      const seedDir = p.join(baseDir, "seed")
+      yield* _(runShell(
+        `git init --initial-branch=main "${seedDir}" 2>/dev/null || git init "${seedDir}"`,
+        baseDir
+      ))
+      yield* _(captureGit(["config", "user.email", "test@example.com"], seedDir))
+      yield* _(captureGit(["config", "user.name", "Test"], seedDir))
+      yield* _(captureGit(["remote", "add", "origin", remotePath], seedDir))
+      yield* _(runShell(`echo "# .docker-git" > "${seedDir}/README.md"`, seedDir))
+      yield* _(captureGit(["add", "-A"], seedDir))
+      yield* _(captureGit(["commit", "-m", "initial"], seedDir))
+      yield* _(captureGit(["push", "origin", "HEAD:refs/heads/main"], seedDir))
+    }
 
-  if (withInitialCommit) {
-    // Seed the bare repo by creating a local repo and pushing to it
-    const seedDir = nodePath.join(baseDir, "seed")
-    execSync(`git init --initial-branch=main "${seedDir}" 2>/dev/null || git init "${seedDir}"`, { env: seedEnv })
-    execSync(`git -C "${seedDir}" config user.email "test@example.com"`)
-    execSync(`git -C "${seedDir}" config user.name "Test"`)
-    execSync(`git -C "${seedDir}" remote add origin "${remotePath}"`)
-    execSync(`echo "# .docker-git" > "${seedDir}/README.md"`)
-    execSync(`git -C "${seedDir}" add -A`, { env: seedEnv })
-    execSync(`git -C "${seedDir}" commit -m "initial"`, { env: seedEnv })
-    // Push explicitly to main regardless of local default branch name.
-    // GIT_CONFIG_NOSYSTEM bypasses the docker-git system pre-push hook.
-    execSync(`git -C "${seedDir}" push origin HEAD:refs/heads/main`, { env: seedEnv })
-  }
-
-  return remotePath
-}
+    return remotePath
+  })
 
 /**
  * Run an Effect inside a freshly created temp directory, cleaning up after.
@@ -60,14 +132,15 @@ const makeFakeRemote = (baseDir: string, withInitialCommit: boolean): string => 
  */
 const withTempStateRoot = <A, E, R>(
   use: (opts: { tempBase: string; stateRoot: string }) => Effect.Effect<A, E, R>
-): Effect.Effect<A, E, R | FileSystem.FileSystem> =>
+): Effect.Effect<A, E, R | FileSystem.FileSystem | Path.Path> =>
   Effect.scoped(
     Effect.gen(function*(_) {
       const fs = yield* _(FileSystem.FileSystem)
+      const p = yield* _(Path.Path)
       const tempBase = yield* _(
         fs.makeTempDirectoryScoped({ prefix: "docker-git-state-init-" })
       )
-      const stateRoot = nodePath.join(tempBase, "state")
+      const stateRoot = p.join(tempBase, "state")
 
       const previous = process.env["DOCKER_GIT_PROJECTS_ROOT"]
       yield* _(
@@ -95,30 +168,22 @@ describe("stateInit", () => {
   it.effect("clones an empty remote into an empty local directory", () =>
     withTempStateRoot(({ tempBase, stateRoot }) =>
       Effect.gen(function*(_) {
-        const remoteUrl = makeFakeRemote(tempBase, true)
+        const p = yield* _(Path.Path)
+        const remoteUrl = yield* _(makeFakeRemote(p, tempBase, true))
 
         yield* _(stateInit({ repoUrl: remoteUrl, repoRef: "main" }))
 
-        // .git directory must exist
         const fs = yield* _(FileSystem.FileSystem)
-        const hasGit = yield* _(fs.exists(nodePath.join(stateRoot, ".git")))
+        const hasGit = yield* _(fs.exists(p.join(stateRoot, ".git")))
         expect(hasGit).toBe(true)
 
-        // origin remote must point to remoteUrl
-        const originOut = execSync(
-          `git -C "${stateRoot}" remote get-url origin`
-        ).toString().trim()
+        const originOut = yield* _(captureGit(["remote", "get-url", "origin"], stateRoot))
         expect(originOut).toBe(remoteUrl)
 
-        // HEAD must be on main branch with at least one commit
-        const branch = execSync(
-          `git -C "${stateRoot}" rev-parse --abbrev-ref HEAD`
-        ).toString().trim()
+        const branch = yield* _(captureGit(["rev-parse", "--abbrev-ref", "HEAD"], stateRoot))
         expect(branch).toBe("main")
 
-        const log = execSync(
-          `git -C "${stateRoot}" log --oneline`
-        ).toString().trim()
+        const log = yield* _(captureGit(["log", "--oneline"], stateRoot))
         expect(log.length).toBeGreaterThan(0)
       })
     ).pipe(Effect.provide(NodeContext.layer)))
@@ -126,41 +191,30 @@ describe("stateInit", () => {
   it.effect("adopts remote history when local dir has files but no .git (the bug fix)", () =>
     withTempStateRoot(({ tempBase, stateRoot }) =>
       Effect.gen(function*(_) {
-        const remoteUrl = makeFakeRemote(tempBase, true)
+        const p = yield* _(Path.Path)
+        const remoteUrl = yield* _(makeFakeRemote(p, tempBase, true))
 
-        // Simulate the bug scenario: stateRoot exists with files but no .git
         const fs = yield* _(FileSystem.FileSystem)
-        const orchAuthDir = nodePath.join(stateRoot, ".orch", "auth")
+        const orchAuthDir = p.join(stateRoot, ".orch", "auth")
         yield* _(fs.makeDirectory(orchAuthDir, { recursive: true }))
-        yield* _(fs.writeFileString(nodePath.join(orchAuthDir, "github.env"), "GH_TOKEN=test\n"))
+        yield* _(fs.writeFileString(p.join(orchAuthDir, "github.env"), "GH_TOKEN=test\n"))
 
-        // Run stateInit — must NOT create a divergent root commit
         yield* _(stateInit({ repoUrl: remoteUrl, repoRef: "main" }))
 
-        // .git directory must exist after init
-        const hasGit = yield* _(fs.exists(nodePath.join(stateRoot, ".git")))
+        const hasGit = yield* _(fs.exists(p.join(stateRoot, ".git")))
         expect(hasGit).toBe(true)
 
-        // origin remote must be configured
-        const originOut = execSync(
-          `git -C "${stateRoot}" remote get-url origin`
-        ).toString().trim()
+        const originOut = yield* _(captureGit(["remote", "get-url", "origin"], stateRoot))
         expect(originOut).toBe(remoteUrl)
 
-        // HEAD must point to main
-        const branch = execSync(
-          `git -C "${stateRoot}" rev-parse --abbrev-ref HEAD`
-        ).toString().trim()
+        const branch = yield* _(captureGit(["rev-parse", "--abbrev-ref", "HEAD"], stateRoot))
         expect(branch).toBe("main")
 
         // INVARIANT: no divergent root commit — the repo must share history with remote
-        // Verify by checking that local HEAD includes the remote initial commit
-        const remoteHead = execSync(
-          `git -C "${stateRoot}" rev-parse origin/main`
-        ).toString().trim()
-        const mergeBase = execSync(
-          `git -C "${stateRoot}" merge-base HEAD origin/main || git -C "${stateRoot}" rev-parse origin/main`
-        ).toString().trim()
+        const remoteHead = yield* _(captureGit(["rev-parse", "origin/main"], stateRoot))
+        const mergeBase = yield* _(
+          runShell(`git merge-base HEAD origin/main || git rev-parse origin/main`, stateRoot)
+        )
         expect(mergeBase).toBe(remoteHead)
       })
     ).pipe(Effect.provide(NodeContext.layer)))
@@ -168,21 +222,14 @@ describe("stateInit", () => {
   it.effect("is idempotent when .git already exists", () =>
     withTempStateRoot(({ tempBase, stateRoot }) =>
       Effect.gen(function*(_) {
-        const remoteUrl = makeFakeRemote(tempBase, true)
+        const p = yield* _(Path.Path)
+        const remoteUrl = yield* _(makeFakeRemote(p, tempBase, true))
 
-        // First call — sets up the repository
         yield* _(stateInit({ repoUrl: remoteUrl, repoRef: "main" }))
+        const firstCommit = yield* _(captureGit(["rev-parse", "HEAD"], stateRoot))
 
-        const firstCommit = execSync(
-          `git -C "${stateRoot}" rev-parse HEAD`
-        ).toString().trim()
-
-        // Second call — must be a no-op (same HEAD, no extra commits)
         yield* _(stateInit({ repoUrl: remoteUrl, repoRef: "main" }))
-
-        const secondCommit = execSync(
-          `git -C "${stateRoot}" rev-parse HEAD`
-        ).toString().trim()
+        const secondCommit = yield* _(captureGit(["rev-parse", "HEAD"], stateRoot))
 
         // INVARIANT: idempotent — HEAD does not change on repeated calls
         expect(secondCommit).toBe(firstCommit)

@@ -238,10 +238,50 @@ export interface AuthClaudeLogoutCommand {
   readonly claudeAuthPath: string
 }
 
+// CHANGE: add session gist backup commands for PR-based session history
+// WHY: enables returning to old AI sessions via private gists linked to PRs
+// QUOTE(ТЗ): "иметь возможность возвращаться ко всем старым сессиям с агентами"
+// REF: issue-143
+// PURITY: CORE
+// EFFECT: n/a
+// INVARIANT: gist commands are always tied to a repository context
+// COMPLEXITY: O(1)
+export interface SessionGistBackupCommand {
+  readonly _tag: "SessionGistBackup"
+  readonly projectDir: string
+  readonly prNumber: number | null
+  readonly repo: string | null
+  readonly postComment: boolean
+}
+
+export interface SessionGistListCommand {
+  readonly _tag: "SessionGistList"
+  readonly limit: number
+  readonly repo: string | null
+}
+
+export interface SessionGistViewCommand {
+  readonly _tag: "SessionGistView"
+  readonly gistId: string
+}
+
+export interface SessionGistDownloadCommand {
+  readonly _tag: "SessionGistDownload"
+  readonly gistId: string
+  readonly outputDir: string
+}
+
+export type SessionGistCommand =
+  | SessionGistBackupCommand
+  | SessionGistListCommand
+  | SessionGistViewCommand
+  | SessionGistDownloadCommand
+
 export type SessionsCommand =
   | SessionsListCommand
   | SessionsKillCommand
   | SessionsLogsCommand
+  | SessionGistCommand
 
 export type ScrapCommand =
   | ScrapExportCommand

@@ -91,19 +91,40 @@ GEMINI_CONFIG_SETTINGS_FILE="$GEMINI_SETTINGS_DIR/settings.json"
 # Wait for symlink to be established by the auth config step
 mkdir -p "$GEMINI_SETTINGS_DIR" || true
 
-# Disable folder trust prompt in settings.json
-if [[ ! -f "$GEMINI_CONFIG_SETTINGS_FILE" ]]; then
-  cat <<'EOF' > "$GEMINI_CONFIG_SETTINGS_FILE"
-{
-  "security": {
-    "folderTrust": {
-      "enabled": false
+# Disable folder trust prompt and enable auto-approval in settings.json
+GEMINI_SYNC_SETTINGS_SCRIPT=$(cat <<'NODE'
+const fs = require("node:fs")
+const path = require("node:path")
+const settingsPath = process.argv[2]
+if (!settingsPath) process.exit(1)
+
+const isRecord = (v) => typeof v === "object" && v !== null && !Array.isArray(v)
+
+let settings = {}
+try {
+  settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"))
+  if (!isRecord(settings)) settings = {}
+} catch {}
+
+const nextSettings = {
+  ...settings,
+  security: {
+    ...(isRecord(settings.security) ? settings.security : {}),
+    folderTrust: {
+      ...(isRecord(settings.security?.folderTrust) ? settings.security.folderTrust : {}),
+      enabled: false
     }
   },
-  "approvalPolicy": "never"
+  approvalPolicy: "never"
 }
-EOF
-fi
+
+if (JSON.stringify(settings) !== JSON.stringify(nextSettings)) {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true })
+  fs.writeFileSync(settingsPath, JSON.stringify(nextSettings, null, 2) + "\n")
+}
+NODE
+)
+node -e "$GEMINI_SYNC_SETTINGS_SCRIPT" "$GEMINI_CONFIG_SETTINGS_FILE" || true
 
 # Pre-trust important directories in trustedFolders.json
 # Use flat mapping as required by recent Gemini CLI versions
@@ -184,7 +205,7 @@ cat <<EOF > "$GEMINI_MD_PATH"
 Ты автономный агент, который имеет полностью все права управления контейнером. У тебя есть доступ к командам sudo, gh, codex, gemini, claude, opencode, oh-my-opencode, sshpass, git, node, pnpm и всем остальным другим. Проекты с которыми идёт работа лежат по пути ~
 Рабочая папка проекта (git clone): __TARGET_DIR__
 Доступные workspace пути: __TARGET_DIR__
-\$GEMINI_WORKSPACE_CONTEXT
+$GEMINI_WORKSPACE_CONTEXT
 Фокус задачи: работай только в workspace, который запрашивает пользователь. Текущий workspace: __TARGET_DIR__
 Доступ к интернету: есть. Если чего-то не знаешь — ищи в интернете или по кодовой базе.
 Для решения задач обязательно используй subagents. Сам агент обязан выполнять финальную проверку, интеграцию и валидацию результата перед ответом пользователю.

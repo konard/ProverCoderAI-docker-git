@@ -27,7 +27,7 @@ import { autoSyncState } from "./state-repo.js"
 // INVARIANT: Credentials are stored in isolated account directory
 // COMPLEXITY: O(1) for API key, O(user_interaction) for OAuth
 
-type GeminiRuntime = FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+export type GeminiRuntime = FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
 type GeminiAuthMethod = "none" | "api-key" | "oauth"
 
 const geminiImageName = "docker-git-auth-gemini:latest"
@@ -47,9 +47,9 @@ export const geminiAuthRoot = ".docker-git/.orch/auth/gemini"
 const geminiApiKeyFileName = ".api-key"
 const geminiEnvFileName = ".env"
 
-const geminiApiKeyPath = (accountPath: string): string => `${accountPath}/${geminiApiKeyFileName}`
-const geminiEnvFilePath = (accountPath: string): string => `${accountPath}/${geminiEnvFileName}`
-const geminiCredentialsPath = (accountPath: string): string => `${accountPath}/${geminiCredentialsDir}`
+export const geminiApiKeyPath = (accountPath: string): string => `${accountPath}/${geminiApiKeyFileName}`
+export const geminiEnvFilePath = (accountPath: string): string => `${accountPath}/${geminiEnvFileName}`
+export const geminiCredentialsPath = (accountPath: string): string => `${accountPath}/${geminiCredentialsDir}`
 
 // CHANGE: render Dockerfile for Gemini CLI authentication image
 // WHY: Gemini CLI OAuth requires running in Docker for headless environments
@@ -96,7 +96,7 @@ const resolveGeminiAccountPath = (path: Path.Path, rootPath: string, label: stri
   return { accountLabel, accountPath }
 }
 
-const withGeminiAuth = <A, E>(
+export const withGeminiAuth = <A, E>(
   command: AuthGeminiLoginCommand | AuthGeminiLogoutCommand | AuthGeminiStatusCommand,
   run: (
     context: GeminiAccountContext
@@ -200,7 +200,7 @@ const hasOauthCredentials = (
 // PURITY: SHELL
 // INVARIANT: API key takes precedence over OAuth credentials
 // COMPLEXITY: O(1)
-const resolveGeminiAuthMethod = (
+export const resolveGeminiAuthMethod = (
   fs: FileSystem.FileSystem,
   accountPath: string
 ): Effect.Effect<GeminiAuthMethod, PlatformError> =>
@@ -234,6 +234,24 @@ export const authGeminiLogin = (
       const apiKeyFilePath = geminiApiKeyPath(accountPath)
       yield* _(fs.writeFileString(apiKeyFilePath, `${apiKey.trim()}\n`))
       yield* _(fs.chmod(apiKeyFilePath, 0o600), Effect.orElseSucceed(() => void 0))
+
+      const credentialsDir = geminiCredentialsPath(accountPath)
+      yield* _(fs.makeDirectory(credentialsDir, { recursive: true }))
+      const settingsPath = `${credentialsDir}/settings.json`
+      yield* _(
+        fs.writeFileString(
+          settingsPath,
+          JSON.stringify(
+            {
+              model: "gemini-3.1-pro-preview",
+              web_search: true,
+              security: { folderTrust: { enabled: false }, approvalPolicy: "never" }
+            },
+            null,
+            2
+          ) + "\n"
+        )
+      )
     })).pipe(
       Effect.zipRight(autoSyncState(`chore(state): auth gemini ${accountLabel}`))
     )
@@ -253,16 +271,11 @@ export const authGeminiLoginCli = (
   _command: AuthGeminiLoginCommand
 ): Effect.Effect<void, PlatformError | CommandFailedError, GeminiRuntime> =>
   Effect.gen(function*(_) {
-    yield* _(Effect.log("Gemini CLI supports two authentication methods:"))
-    yield* _(Effect.log(""))
-    yield* _(Effect.log("1. API Key (recommended for simplicity):"))
-    yield* _(Effect.log("   - Go to https://ai.google.dev/aistudio"))
-    yield* _(Effect.log("   - Create or retrieve your API key"))
-    yield* _(Effect.log("   - Use: docker-git menu -> Auth profiles -> Gemini CLI: set API key"))
-    yield* _(Effect.log(""))
-    yield* _(Effect.log("2. OAuth (Sign in with Google):"))
-    yield* _(Effect.log("   - Use: docker-git menu -> Auth profiles -> Gemini CLI: login via OAuth"))
-    yield* _(Effect.log("   - Follow the prompts to authenticate with your Google account"))
+    yield* _(
+      Effect.log(
+        "Gemini CLI supports two authentication methods:\n\n1. API Key (recommended for simplicity):\n   - Go to https://ai.google.dev/aistudio\n   - Create or retrieve your API key\n   - Use: docker-git menu -> Auth profiles -> Gemini CLI: set API key\n\n2. OAuth (Sign in with Google):\n   - Use: docker-git menu -> Auth profiles -> Gemini CLI: login via OAuth\n   - Follow the prompts to authenticate with your Google account"
+      )
+    )
   })
 
 // CHANGE: login to Gemini CLI via OAuth in Docker container
@@ -299,7 +312,16 @@ const prepareGeminiCredentialsDir = (
 const writeInitialSettings = (credentialsDir: string, fs: FileSystem.FileSystem) =>
   Effect.gen(function*(_) {
     const settingsPath = `${credentialsDir}/settings.json`
-    yield* _(fs.writeFileString(settingsPath, JSON.stringify({ security: { folderTrust: { enabled: false } } })))
+    yield* _(
+      fs.writeFileString(
+        settingsPath,
+        JSON.stringify({
+          model: "gemini-3.1-pro-preview",
+          web_search: true,
+          security: { folderTrust: { enabled: false } }
+        })
+      )
+    )
 
     const trustedFoldersPath = `${credentialsDir}/trustedFolders.json`
     yield* _(
@@ -340,6 +362,8 @@ export const authGeminiLoginOauth = (
             settingsPath,
             JSON.stringify(
               {
+                model: "gemini-3.1-pro-preview",
+                web_search: true,
                 security: {
                   folderTrust: { enabled: false },
                   auth: { selectedType: "oauth-personal" },
@@ -358,53 +382,5 @@ export const authGeminiLoginOauth = (
   )
 }
 
-// CHANGE: show Gemini CLI auth status for a given label
-// WHY: allow verifying API key/OAuth presence without exposing credentials
-// QUOTE(ТЗ): "Добавь поддержку gemini CLI"
-// REF: issue-146
-// SOURCE: https://geminicli.com/docs/get-started/authentication/
-// FORMAT THEOREM: forall cmd: authGeminiStatus(cmd) -> connected(cmd, method) | disconnected(cmd)
-// PURITY: SHELL
-// EFFECT: Effect<void, PlatformError | CommandFailedError, GeminiRuntime>
-// INVARIANT: never logs API keys or OAuth tokens
-// COMPLEXITY: O(1)
-export const authGeminiStatus = (
-  command: AuthGeminiStatusCommand
-): Effect.Effect<void, PlatformError | CommandFailedError, GeminiRuntime> =>
-  withGeminiAuth(command, ({ accountLabel, accountPath, fs }) =>
-    Effect.gen(function*(_) {
-      const authMethod = yield* _(resolveGeminiAuthMethod(fs, accountPath))
-      if (authMethod === "none") {
-        yield* _(Effect.log(`Gemini not connected (${accountLabel}).`))
-        return
-      }
-      yield* _(Effect.log(`Gemini connected (${accountLabel}, ${authMethod}).`))
-    }))
-
-// CHANGE: logout Gemini CLI by clearing API key and OAuth credentials for a label
-// WHY: allow revoking Gemini CLI access deterministically
-// QUOTE(ТЗ): "Добавь поддержку gemini CLI"
-// REF: issue-146
-// SOURCE: https://geminicli.com/docs/get-started/authentication/
-// FORMAT THEOREM: forall cmd: authGeminiLogout(cmd) -> credentials_cleared(cmd)
-// PURITY: SHELL
-// EFFECT: Effect<void, PlatformError | CommandFailedError, GeminiRuntime>
-// INVARIANT: all credential files (API key and OAuth) are removed from account directory
-// COMPLEXITY: O(1)
-export const authGeminiLogout = (
-  command: AuthGeminiLogoutCommand
-): Effect.Effect<void, PlatformError | CommandFailedError, GeminiRuntime> =>
-  Effect.gen(function*(_) {
-    const accountLabel = normalizeAccountLabel(command.label, "default")
-    yield* _(
-      withGeminiAuth(command, ({ accountPath, fs }) =>
-        Effect.gen(function*(_) {
-          // Clear API key
-          yield* _(fs.remove(geminiApiKeyPath(accountPath), { force: true }))
-          yield* _(fs.remove(geminiEnvFilePath(accountPath), { force: true }))
-          // Clear OAuth credentials (entire .gemini directory)
-          yield* _(fs.remove(geminiCredentialsPath(accountPath), { recursive: true, force: true }))
-        }))
-    )
-    yield* _(autoSyncState(`chore(state): auth gemini logout ${accountLabel}`))
-  }).pipe(Effect.asVoid)
+export { authGeminiLogout } from "./auth-gemini-logout.js"
+export { authGeminiStatus } from "./auth-gemini-status.js"

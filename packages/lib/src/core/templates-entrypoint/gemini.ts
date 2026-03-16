@@ -15,7 +15,7 @@ const geminiAuthRootContainerPath = (sshUser: string): string => `/home/${sshUse
 
 const geminiAuthConfigTemplate = String
   .raw`# Gemini CLI: expose GEMINI_API_KEY for SSH sessions (API key stored under ~/.docker-git/.orch/auth/gemini)
-GEMINI_LABEL_RAW="$GEMINI_AUTH_LABEL"
+GEMINI_LABEL_RAW="${"$"}{GEMINI_AUTH_LABEL:-}"
 if [[ -z "$GEMINI_LABEL_RAW" ]]; then
   GEMINI_LABEL_RAW="default"
 fi
@@ -134,7 +134,7 @@ docker_git_ensure_gemini_cli`
 
 const renderGeminiProfileSetup = (): string =>
   String.raw`GEMINI_PROFILE="/etc/profile.d/gemini-config.sh"
-printf "export GEMINI_AUTH_LABEL=%q\n" "$GEMINI_AUTH_LABEL" > "$GEMINI_PROFILE"
+printf "export GEMINI_AUTH_LABEL=%q\n" "${"$"}{GEMINI_AUTH_LABEL:-default}" > "$GEMINI_PROFILE"
 cat <<'EOF' >> "$GEMINI_PROFILE"
 GEMINI_API_KEY_FILE="${"$"}{GEMINI_AUTH_DIR:-$HOME/.gemini}/.api-key"
 GEMINI_ENV_FILE="${"$"}{GEMINI_AUTH_DIR:-$HOME/.gemini}/.env"
@@ -149,7 +149,7 @@ fi
 EOF
 chmod 0644 "$GEMINI_PROFILE" || true
 
-docker_git_upsert_ssh_env "GEMINI_AUTH_LABEL" "$GEMINI_AUTH_LABEL"
+docker_git_upsert_ssh_env "GEMINI_AUTH_LABEL" "${"$"}{GEMINI_AUTH_LABEL:-default}"
 docker_git_upsert_ssh_env "GEMINI_API_KEY" "${"$"}{GEMINI_API_KEY:-}"`
 
 export const renderEntrypointGeminiConfig = (config: TemplateConfig): string =>

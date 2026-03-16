@@ -24,11 +24,12 @@ import type {
   StateInitCommand,
   StateSyncCommand
 } from "@effect-template/lib/core/domain"
+import { isInsideDocker } from "@effect-template/lib"
 import type { AppError } from "@effect-template/lib/usecases/errors"
 import { renderError } from "@effect-template/lib/usecases/errors"
 import { Effect, Match, pipe } from "effect"
 
-import type { ApiClientError } from "./api-client.js"
+import { ApiClientError } from "./api-client.js"
 import {
   apiAuthClaudeLogin,
   apiAuthClaudeLogout,
@@ -42,6 +43,7 @@ import {
   apiMcpPlaywrightUp,
   apiProjectApply,
   apiProjectCreate,
+  apiProjectGet,
   apiProjectsDownAll,
   apiProjectsList,
   apiScrapExport,
@@ -59,7 +61,7 @@ import {
 } from "./api-client.js"
 import { readCommand } from "./cli/read-command.js"
 import { runMenu } from "./menu.js"
-import { attachTmux, listTmuxPanes } from "./tmux.js"
+import { attachTmux, attachTmuxFromProject, listTmuxPanes } from "./tmux.js"
 
 // CHANGE: rewrite CLI program to use unified REST API
 // WHY: CLI becomes thin HTTP client; business logic lives in API server
@@ -184,7 +186,46 @@ const handleAuthClaudeLogout = (cmd: AuthClaudeLogoutCommand) =>
 
 // ─── Sessions / Scrap / MCP / Apply handlers ─────────────────────────────────
 
-const handleAttach = (cmd: AttachCommand) => attachTmux(cmd)
+// CHANGE: in DinD, fetch project details from API instead of reading local filesystem
+// WHY: project config files live on the API host, not visible in the CLI container
+// PURITY: SHELL
+// INVARIANT: DinD → API path (list + match); local → filesystem path
+// CHANGE: match CLI shorthand (e.g. ".docker-git/provercoderai/docker-git") to API project ID
+// WHY: CLI resolves to relative path; API uses absolute path; match by suffix
+// PURITY: CORE
+// COMPLEXITY: O(n) where n = number of projects
+const findProjectByShorthand = (shorthand: string) =>
+  apiProjectsList().pipe(
+    Effect.flatMap(({ projects }) => {
+      const normalized = shorthand.replace(/^\.docker-git\//, "")
+      const match = projects.find(
+        (p) =>
+          p.id === shorthand ||
+          p.id.endsWith(`/${shorthand}`) ||
+          p.id.endsWith(`/${normalized}`) ||
+          p.displayName === normalized
+      )
+      return match
+        ? apiProjectGet(match.id)
+        : Effect.fail(new ApiClientError({ message: `Project not found: ${shorthand}` }))
+    })
+  )
+
+const handleAttach = (cmd: AttachCommand) =>
+  isInsideDocker()
+    ? findProjectByShorthand(cmd.projectDir).pipe(
+        Effect.flatMap(({ project }) =>
+          attachTmuxFromProject({
+            containerName: project.containerName,
+            sshUser: project.sshUser,
+            sshPort: project.sshPort,
+            repoUrl: project.repoUrl,
+            repoRef: project.repoRef,
+            sshCommand: project.sshCommand
+          })
+        )
+      )
+    : attachTmux(cmd)
 
 const handlePanes = (cmd: PanesCommand) => listTmuxPanes(cmd)
 
@@ -307,7 +348,14 @@ const handleCreateCmd = (create: CreateCommand) =>
   }).pipe(
     Effect.flatMap(({ project }) => {
       if (create.openSsh) {
-        return attachTmux({ _tag: "Attach", projectDir: project.projectDir })
+        return attachTmuxFromProject({
+          containerName: project.containerName,
+          sshUser: project.sshUser,
+          sshPort: project.sshPort,
+          repoUrl: project.repoUrl,
+          repoRef: project.repoRef,
+          sshCommand: project.sshCommand
+        })
       }
       return Effect.log(`Project created: ${project.displayName} (${project.sshCommand})`)
     })

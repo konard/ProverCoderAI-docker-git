@@ -1,6 +1,7 @@
 import * as HttpBody from "@effect/platform/HttpBody"
 import * as HttpClient from "@effect/platform/HttpClient"
 import type * as HttpClientResponse from "@effect/platform/HttpClientResponse"
+import { isInsideDocker } from "@effect-template/lib"
 import { Data, Effect } from "effect"
 import * as Schema from "effect/Schema"
 
@@ -16,12 +17,13 @@ export class ApiClientError extends Data.TaggedError("ApiClientError")<{
   readonly message: string
 }> {}
 
-// CHANGE: trim trailing slashes without backtracking regex
-// WHY: /\/+$/ is flagged as slow-regex by sonarjs; loop avoids super-linear backtracking
+// CHANGE: trim trailing slashes without backtracking regex; resolve DinD API host
+// WHY: in DinD, localhost:3334 is on the outer host; use docker-git-api:3334 via Docker DNS
 // PURITY: CORE
 // COMPLEXITY: O(n) where n = number of trailing slashes (typically 0 or 1)
 const resolveApiBaseUrl = (): string => {
-  const raw = process.env["DOCKER_GIT_API_URL"] ?? "http://localhost:3334"
+  const defaultUrl = isInsideDocker() ? "http://docker-git-api:3334" : "http://localhost:3334"
+  const raw = process.env["DOCKER_GIT_API_URL"] ?? defaultUrl
   const trimmed = raw.trim()
   let end = trimmed.length
   while (end > 0 && trimmed[end - 1] === "/") {
@@ -263,6 +265,9 @@ export type ProjectApplyRequest = {
 // ─── Projects endpoints ───────────────────────────────────────────────────────
 
 export const apiProjectsList = () => apiGet("/projects", ProjectsListResponseSchema)
+
+export const apiProjectGet = (projectId: string) =>
+  apiGet(`/projects/${encodeURIComponent(projectId)}`, Schema.Struct({ project: ProjectDetailsSchema }))
 
 export const apiProjectCreate = (req: ProjectCreateRequest) => apiPost("/projects", req, ProjectCreatedResponseSchema)
 

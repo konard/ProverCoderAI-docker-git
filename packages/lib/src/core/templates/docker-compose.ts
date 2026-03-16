@@ -52,6 +52,19 @@ const renderProjectsRootHostMount = (projectsRoot: string): string =>
 const renderSharedCodexHostMount = (projectsRoot: string): string =>
   `\${DOCKER_GIT_PROJECTS_ROOT_HOST:-${projectsRoot}}/.orch/auth/codex`
 
+// CHANGE: render authorized_keys mount with DOCKER_GIT_PROJECTS_ROOT_HOST override
+// WHY: in Docker-in-Docker scenarios the relative path resolves on the outer host, not the container;
+//      without the host override Docker creates an empty directory instead of mounting the file
+// PURITY: CORE
+const renderAuthorizedKeysHostMount = (dockerGitPath: string, authorizedKeysPath: string): string => {
+  const prefix = `${dockerGitPath}/`
+  if (authorizedKeysPath.startsWith(prefix)) {
+    const suffix = authorizedKeysPath.slice(prefix.length)
+    return `\${DOCKER_GIT_PROJECTS_ROOT_HOST:-${dockerGitPath}}/${suffix}`
+  }
+  return authorizedKeysPath
+}
+
 const renderResourceLimits = (resourceLimits: ResolvedComposeResourceLimits | undefined): string =>
   resourceLimits === undefined
     ? ""
@@ -149,7 +162,7 @@ ${fragments.maybePlaywrightEnv}${fragments.maybeDependsOn}    env_file:
 ${renderResourceLimits(resourceLimits)}    volumes:
       - ${config.volumeName}:/home/${config.sshUser}
       - ${renderProjectsRootHostMount(config.dockerGitPath)}:/home/${config.sshUser}/.docker-git
-      - ${config.authorizedKeysPath}:/authorized_keys:ro
+      - ${renderAuthorizedKeysHostMount(config.dockerGitPath, config.authorizedKeysPath)}:/authorized_keys:ro
       - ${config.codexAuthPath}:${config.codexHome}
       - ${renderSharedCodexHostMount(config.dockerGitPath)}:${config.codexHome}-shared
       - /var/run/docker.sock:/var/run/docker.sock

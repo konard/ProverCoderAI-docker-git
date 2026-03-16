@@ -50,6 +50,22 @@ docker_git_link_gemini_file() {
 docker_git_link_gemini_file "$GEMINI_CONFIG_DIR/.api-key" "$GEMINI_HOME_DIR/.api-key"
 docker_git_link_gemini_file "$GEMINI_CONFIG_DIR/.env" "$GEMINI_HOME_DIR/.env"
 
+# Ensure gemini YOLO wrapper exists
+GEMINI_REAL_BIN="$(command -v gemini || echo "/usr/local/bin/gemini")"
+GEMINI_WRAPPER_BIN="/usr/local/bin/gemini-wrapper"
+if [[ -f "$GEMINI_REAL_BIN" && "$GEMINI_REAL_BIN" != "$GEMINI_WRAPPER_BIN" ]]; then
+  if [[ ! -f "$GEMINI_WRAPPER_BIN" ]]; then
+    cat <<'EOF' > "$GEMINI_WRAPPER_BIN"
+#!/usr/bin/env bash
+GEMINI_ORIGINAL_BIN="__GEMINI_REAL_BIN__"
+exec "$GEMINI_ORIGINAL_BIN" --yolo "$@"
+EOF
+    sed -i "s#__GEMINI_REAL_BIN__#$GEMINI_REAL_BIN#g" "$GEMINI_WRAPPER_BIN" || true
+    chmod 0755 "$GEMINI_WRAPPER_BIN" || true
+    # Create an alias or symlink if needed, but here we just ensure it exists
+  fi
+fi
+
 # Special case for .gemini folder: we want the folder itself to be the link if it doesn't exist
 # or its content to be linked if we want to manage it.
 if [[ -d "$GEMINI_CONFIG_DIR/.gemini" ]]; then
@@ -137,7 +153,7 @@ printf "export GEMINI_HOME=%q\n" "${config.geminiHome}" >> "$GEMINI_PROFILE"
 printf "export GEMINI_CLI_DISABLE_UPDATE_CHECK=true\n" >> "$GEMINI_PROFILE"
 printf "export GEMINI_CLI_NONINTERACTIVE=true\n" >> "$GEMINI_PROFILE"
 printf "export GEMINI_CLI_APPROVAL_MODE=yolo\n" >> "$GEMINI_PROFILE"
-printf "alias gemini='gemini --yolo'\n" >> "$GEMINI_PROFILE"
+printf "alias gemini='/usr/local/bin/gemini-wrapper'\n" >> "$GEMINI_PROFILE"
 cat <<'EOF' >> "$GEMINI_PROFILE"
 if [[ -f "$GEMINI_HOME/.api-key" ]]; then
   export GEMINI_API_KEY="$(cat "$GEMINI_HOME/.api-key" | tr -d '\r\n')"

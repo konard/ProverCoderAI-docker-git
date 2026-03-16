@@ -1,4 +1,7 @@
+import { Match } from "effect"
 import type { TemplateConfig } from "../domain.js"
+
+type AgentMode = "claude" | "codex" | "gemini"
 
 const indentBlock = (block: string, size = 2): string => {
   const prefix = " ".repeat(size)
@@ -46,20 +49,17 @@ if [[ -n "$AGENT_PROMPT" ]]; then
 fi`
   ].join("\n\n")
 
-const renderAgentPromptCommand = (mode: "claude" | "codex" | "gemini"): string => {
-  switch (mode) {
-    case "claude":
-      return String.raw`claude --dangerously-skip-permissions -p \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
-    case "codex":
-      return String.raw`codex exec \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
-    case "gemini":
-      return String.raw`gemini --approval-mode=yolo \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
-  }
-}
+const renderAgentPromptCommand = (mode: AgentMode): string =>
+  Match.value(mode).pipe(
+    Match.when("claude", () => String.raw`claude --dangerously-skip-permissions -p \"\$(cat \"$AGENT_PROMPT_FILE\")\"`),
+    Match.when("codex", () => String.raw`codex exec \"\$(cat \"$AGENT_PROMPT_FILE\")\"`),
+    Match.when("gemini", () => String.raw`gemini --approval-mode=yolo \"\$(cat \"$AGENT_PROMPT_FILE\")\"`),
+    Match.exhaustive
+  )
 
 const renderAgentAutoLaunchCommand = (
   config: TemplateConfig,
-  mode: "claude" | "codex" | "gemini"
+  mode: AgentMode
 ): string =>
   String
     .raw`su - ${config.sshUser} -s /bin/bash -c "bash -lc '. /etc/profile 2>/dev/null || true; . \"$AGENT_ENV_FILE\" 2>/dev/null || true; cd \"$TARGET_DIR\" && ${
@@ -68,7 +68,7 @@ const renderAgentAutoLaunchCommand = (
 
 const renderAgentModeBlock = (
   config: TemplateConfig,
-  mode: "claude" | "codex" | "gemini"
+  mode: AgentMode
 ): string => {
   const startMessage = `[agent] starting ${mode}...`
   const interactiveMessage = `[agent] ${mode} started in interactive mode (use SSH to connect)`

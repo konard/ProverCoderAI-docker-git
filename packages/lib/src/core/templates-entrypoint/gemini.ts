@@ -11,7 +11,8 @@ import type { TemplateConfig } from "../domain.js"
 
 const geminiAuthRootContainerPath = (sshUser: string): string => `/home/${sshUser}/.docker-git/.orch/auth/gemini`
 
-const geminiAuthConfigTemplate = String.raw`# Gemini CLI: expose GEMINI_HOME for sessions (OAuth cache lives under ~/.docker-git/.orch/auth/gemini)
+const geminiAuthConfigTemplate = String
+  .raw`# Gemini CLI: expose GEMINI_HOME for sessions (OAuth cache lives under ~/.docker-git/.orch/auth/gemini)
 GEMINI_LABEL_RAW="$GEMINI_AUTH_LABEL"
 if [[ -z "$GEMINI_LABEL_RAW" ]]; then
   GEMINI_LABEL_RAW="default"

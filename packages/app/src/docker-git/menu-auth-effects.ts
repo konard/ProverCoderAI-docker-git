@@ -47,10 +47,10 @@ const resolveClaudeLogoutEffect = (labelOption: string | null) =>
   authClaudeLogout({ _tag: "AuthClaudeLogout", label: labelOption, claudeAuthPath: claudeAuthRoot })
 
 const resolveGeminiOauthEffect = (labelOption: string | null) =>
-  authGeminiLoginOauth({ _tag: "AuthGeminiLogin", label: labelOption, geminiAuthPath: geminiAuthRoot })
+  authGeminiLoginOauth({ _tag: "AuthGeminiLogin", label: labelOption, geminiAuthPath: geminiAuthRoot, isWeb: false })
 
 const resolveGeminiApiKeyEffect = (labelOption: string | null, apiKey: string) =>
-  authGeminiLogin({ _tag: "AuthGeminiLogin", label: labelOption, geminiAuthPath: geminiAuthRoot }, apiKey)
+  authGeminiLogin({ _tag: "AuthGeminiLogin", label: labelOption, geminiAuthPath: geminiAuthRoot, isWeb: false }, apiKey)
 
 const resolveGeminiLogoutEffect = (labelOption: string | null) =>
   authGeminiLogout({ _tag: "AuthGeminiLogout", label: labelOption, geminiAuthPath: geminiAuthRoot })

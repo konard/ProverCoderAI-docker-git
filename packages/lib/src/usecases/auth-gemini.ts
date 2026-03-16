@@ -270,6 +270,47 @@ export const authGeminiLoginCli = (
 // QUOTE(ТЗ): "Мне надо что бы он её умел принимать, типо ждал пока мы вставим ссылку"
 // REF: issue-146, PR-147 comment from skulidropek
 // SOURCE: https://github.com/google-gemini/gemini-cli
+const prepareGeminiCredentialsDir = (
+  cwd: string,
+  accountPath: string,
+  fs: FileSystem.FileSystem
+) =>
+  Effect.gen(function*(_) {
+    const credentialsDir = geminiCredentialsPath(accountPath)
+    const removeFallback = pipe(
+      runCommandExitCode({
+        cwd,
+        command: "docker",
+        args: ["run", "--rm", "-v", `${accountPath}:/target`, "alpine", "rm", "-rf", "/target/.gemini"]
+      }),
+      Effect.asVoid,
+      Effect.orElse(() => Effect.void)
+    )
+
+    yield* _(
+      fs.remove(credentialsDir, { recursive: true, force: true }).pipe(
+        Effect.orElse(() => removeFallback)
+      )
+    )
+    yield* _(fs.makeDirectory(credentialsDir, { recursive: true }))
+    return credentialsDir
+  })
+
+const writeInitialSettings = (credentialsDir: string, fs: FileSystem.FileSystem) =>
+  Effect.gen(function*(_) {
+    const settingsPath = `${credentialsDir}/settings.json`
+    yield* _(fs.writeFileString(settingsPath, JSON.stringify({ security: { folderTrust: { enabled: false } } })))
+
+    const trustedFoldersPath = `${credentialsDir}/trustedFolders.json`
+    yield* _(
+      fs.writeFileString(
+        trustedFoldersPath,
+        JSON.stringify({ "/": "TRUST_FOLDER", [geminiContainerHomeDir]: "TRUST_FOLDER" })
+      )
+    )
+    return settingsPath
+  })
+
 // FORMAT THEOREM: forall cmd: authGeminiLoginOauth(cmd) -> oauth_credentials_stored | error
 // PURITY: SHELL
 // EFFECT: Effect<void, AuthError | PlatformError | CommandFailedError, GeminiRuntime>
@@ -283,51 +324,8 @@ export const authGeminiLoginOauth = (
     command,
     ({ accountPath, cwd, fs }) =>
       Effect.gen(function*(_) {
-        // Ensure .gemini directory exists and is empty for fresh OAuth credentials
-        const credentialsDir = geminiCredentialsPath(accountPath)
-        yield* _(
-          fs.remove(credentialsDir, { recursive: true, force: true }).pipe(
-            Effect.catchAll(() =>
-              pipe(
-                runCommandExitCode({
-                  cwd,
-                  command: "docker",
-                  args: ["run", "--rm", "-v", `${accountPath}:/target`, "alpine", "rm", "-rf", "/target/.gemini"]
-                }),
-                Effect.asVoid,
-                Effect.catchAll(() => Effect.void)
-              )
-            )
-          ) as Effect.Effect<void, never, CommandExecutor.CommandExecutor>
-        )
-        yield* _(fs.makeDirectory(credentialsDir, { recursive: true }))
-
-        // Pre-create settings.json to disable folder trust prompt
-        const settingsPath = `${credentialsDir}/settings.json`
-        yield* _(
-          fs.writeFileString(
-            settingsPath,
-            JSON.stringify({
-              security: {
-                folderTrust: {
-                  enabled: false
-                }
-              }
-            })
-          )
-        )
-
-        // Pre-trust the container's home directory to skip interactive prompt
-        const trustedFoldersPath = `${credentialsDir}/trustedFolders.json`
-        yield* _(
-          fs.writeFileString(
-            trustedFoldersPath,
-            JSON.stringify({
-              "/": "TRUST_FOLDER",
-              [geminiContainerHomeDir]: "TRUST_FOLDER"
-            })
-          )
-        )
+        const credentialsDir = yield* _(prepareGeminiCredentialsDir(cwd, accountPath, fs))
+        const settingsPath = yield* _(writeInitialSettings(credentialsDir, fs))
 
         yield* _(
           runGeminiOauthLoginWithPrompt(cwd, accountPath, {
@@ -340,17 +338,17 @@ export const authGeminiLoginOauth = (
         yield* _(
           fs.writeFileString(
             settingsPath,
-            JSON.stringify({
-              security: {
-                folderTrust: {
-                  enabled: false
-                },
-                auth: {
-                  selectedType: "oauth-personal"
-                },
-                approvalPolicy: "never"
-              }
-            }, null, 2) + "\n"
+            JSON.stringify(
+              {
+                security: {
+                  folderTrust: { enabled: false },
+                  auth: { selectedType: "oauth-personal" },
+                  approvalPolicy: "never"
+                }
+              },
+              null,
+              2
+            ) + "\n"
           )
         )
       }),

@@ -101,9 +101,7 @@ const handleNonBaseCommand = (command: NonBaseCommand) =>
       Match.when({ _tag: "SessionsList" }, (cmd) => listTerminalSessions(cmd))
     )
     .pipe(
-      Match.when({ _tag: "AuthGeminiLogin" }, (cmd) =>
-        cmd.isWeb ? authGeminiLoginOauth(cmd) : authGeminiLoginCli(cmd)
-      ),
+      Match.when({ _tag: "AuthGeminiLogin" }, (cmd) => cmd.isWeb ? authGeminiLoginOauth(cmd) : authGeminiLoginCli(cmd)),
       Match.when({ _tag: "AuthGeminiStatus" }, (cmd) => authGeminiStatus(cmd)),
       Match.when({ _tag: "AuthGeminiLogout" }, (cmd) => authGeminiLogout(cmd)),
       Match.when({ _tag: "SessionsKill" }, (cmd) => killTerminalProcess(cmd)),

@@ -6,6 +6,7 @@ import * as Fiber from "effect/Fiber"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
+import { stripAnsi, writeChunkToFd } from "../shell/ansi-strip.js"
 import { resolveDefaultDockerUser, resolveDockerVolumeHostPath } from "../shell/docker-auth.js"
 import { AuthError, CommandFailedError } from "../shell/errors.js"
 
@@ -20,70 +21,9 @@ import { AuthError, CommandFailedError } from "../shell/errors.js"
 // INVARIANT: OAuth credentials are stored in ~/.gemini directory within account path
 // COMPLEXITY: O(command)
 
+type GeminiAuthResult = "success" | "failure" | "pending"
+
 const outputWindowSize = 262_144
-
-const ansiEscape = "\u001B"
-const ansiBell = "\u0007"
-
-const isAnsiFinalByte = (codePoint: number | undefined): boolean =>
-  codePoint !== undefined && codePoint >= 0x40 && codePoint <= 0x7E
-
-const skipCsiSequence = (raw: string, start: number): number => {
-  const length = raw.length
-  let index = start + 2
-  while (index < length) {
-    const codePoint = raw.codePointAt(index)
-    if (isAnsiFinalByte(codePoint)) {
-      return index + 1
-    }
-    index += 1
-  }
-  return index
-}
-
-const skipOscSequence = (raw: string, start: number): number => {
-  const length = raw.length
-  let index = start + 2
-  while (index < length) {
-    const char = raw[index] ?? ""
-    if (char === ansiBell) {
-      return index + 1
-    }
-    if (char === ansiEscape && raw[index + 1] === "\\") {
-      return index + 2
-    }
-    index += 1
-  }
-  return index
-}
-
-const skipEscapeSequence = (raw: string, start: number): number => {
-  const next = raw[start + 1] ?? ""
-  if (next === "[") {
-    return skipCsiSequence(raw, start)
-  }
-  if (next === "]") {
-    return skipOscSequence(raw, start)
-  }
-  return Math.min(raw.length, start + 2)
-}
-
-const stripAnsi = (raw: string): string => {
-  const cleaned: Array<string> = []
-  let index = 0
-
-  while (index < raw.length) {
-    const current = raw[index] ?? ""
-    if (current !== ansiEscape) {
-      cleaned.push(current)
-      index += 1
-      continue
-    }
-    index = skipEscapeSequence(raw, index)
-  }
-
-  return cleaned.join("")
-}
 
 // Detect successful authentication in Gemini CLI output
 const authSuccessPatterns = [
@@ -102,7 +42,7 @@ const authFailurePatterns = [
   "Authentication cancelled"
 ]
 
-const detectAuthResult = (output: string): "success" | "failure" | "pending" => {
+const detectAuthResult = (output: string): GeminiAuthResult => {
   const normalized = stripAnsi(output).toLowerCase()
 
   for (const pattern of authSuccessPatterns) {
@@ -176,18 +116,10 @@ const startDockerProcess = (
     )
   )
 
-const writeChunkToFd = (fd: number, chunk: Uint8Array): void => {
-  if (fd === 2) {
-    process.stderr.write(chunk)
-    return
-  }
-  process.stdout.write(chunk)
-}
-
 const pumpDockerOutput = (
   source: Stream.Stream<Uint8Array, PlatformError>,
   fd: number,
-  resultBox: { value: "success" | "failure" | "pending" }
+  resultBox: { value: GeminiAuthResult }
 ): Effect.Effect<void, PlatformError> => {
   const decoder = new TextDecoder("utf-8")
   let outputWindow = ""
@@ -214,7 +146,7 @@ const pumpDockerOutput = (
 }
 
 const resolveGeminiLoginResult = (
-  result: "success" | "failure" | "pending",
+  result: GeminiAuthResult,
   exitCode: number
 ): Effect.Effect<void, AuthError | CommandFailedError> =>
   Effect.gen(function*(_) {
@@ -272,7 +204,7 @@ export const runGeminiOauthLoginWithPrompt = (
       const spec = buildDockerGeminiAuthSpec(cwd, hostPath, options.image, options.containerPath)
       const proc = yield* _(startDockerProcess(executor, spec))
 
-      const resultBox: { value: "success" | "failure" | "pending" } = { value: "pending" }
+      const resultBox: { value: GeminiAuthResult } = { value: "pending" }
       const stdoutFiber = yield* _(Effect.forkScoped(pumpDockerOutput(proc.stdout, 1, resultBox)))
       const stderrFiber = yield* _(Effect.forkScoped(pumpDockerOutput(proc.stderr, 2, resultBox)))
 

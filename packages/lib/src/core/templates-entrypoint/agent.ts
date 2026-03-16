@@ -53,7 +53,7 @@ const renderAgentPromptCommand = (mode: "claude" | "codex" | "gemini"): string =
     case "codex":
       return String.raw`codex exec \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
     case "gemini":
-      return String.raw`gemini \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
+      return String.raw`gemini --approval-mode=yolo \"\$(cat \"$AGENT_PROMPT_FILE\")\"`
   }
 }
 

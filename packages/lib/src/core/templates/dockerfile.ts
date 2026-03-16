@@ -60,7 +60,9 @@ RUN set -eu; \
   npm install -g oh-my-opencode@latest "oh-my-opencode-linux-\${OH_MY_OPENCODE_ARCH}@latest"
 RUN oh-my-opencode --version
 RUN npm install -g @anthropic-ai/claude-code@latest
-RUN claude --version`
+RUN claude --version
+RUN npm install -g @google/gemini-cli@latest
+RUN gemini --version`
 
 const renderDockerfileOpenCode = (): string =>
   `# Tooling: OpenCode (binary)

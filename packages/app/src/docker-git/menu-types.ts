@@ -84,6 +84,7 @@ export type AuthFlow =
   | "GitRemove"
   | "ClaudeOauth"
   | "ClaudeLogout"
+  | "GeminiOauth"
   | "GeminiApiKey"
   | "GeminiLogout"
 

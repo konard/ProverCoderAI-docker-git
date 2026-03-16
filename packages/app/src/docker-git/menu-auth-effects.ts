@@ -4,6 +4,7 @@ import {
   authClaudeLogin,
   authClaudeLogout,
   authGeminiLogin,
+  authGeminiLoginOauth,
   authGeminiLogout,
   authGithubLogin,
   claudeAuthRoot,
@@ -30,6 +31,30 @@ const resolveLabelOption = (values: Readonly<Record<string, string>>): string | 
   return labelValue.length > 0 ? labelValue : null
 }
 
+const resolveGithubOauthEffect = (labelOption: string | null, globalEnvPath: string) =>
+  authGithubLogin({
+    _tag: "AuthGithubLogin",
+    label: labelOption,
+    token: null,
+    scopes: null,
+    envGlobalPath: globalEnvPath
+  })
+
+const resolveClaudeOauthEffect = (labelOption: string | null) =>
+  authClaudeLogin({ _tag: "AuthClaudeLogin", label: labelOption, claudeAuthPath: claudeAuthRoot })
+
+const resolveClaudeLogoutEffect = (labelOption: string | null) =>
+  authClaudeLogout({ _tag: "AuthClaudeLogout", label: labelOption, claudeAuthPath: claudeAuthRoot })
+
+const resolveGeminiOauthEffect = (labelOption: string | null) =>
+  authGeminiLoginOauth({ _tag: "AuthGeminiLogin", label: labelOption, geminiAuthPath: geminiAuthRoot })
+
+const resolveGeminiApiKeyEffect = (labelOption: string | null, apiKey: string) =>
+  authGeminiLogin({ _tag: "AuthGeminiLogin", label: labelOption, geminiAuthPath: geminiAuthRoot }, apiKey)
+
+const resolveGeminiLogoutEffect = (labelOption: string | null) =>
+  authGeminiLogout({ _tag: "AuthGeminiLogout", label: labelOption, geminiAuthPath: geminiAuthRoot })
+
 export const resolveAuthPromptEffect = (
   view: AuthPromptView,
   cwd: string,
@@ -37,40 +62,12 @@ export const resolveAuthPromptEffect = (
 ): Effect.Effect<void, AppError, MenuEnv> => {
   const labelOption = resolveLabelOption(values)
   return Match.value(view.flow).pipe(
-    Match.when("GithubOauth", () =>
-      authGithubLogin({
-        _tag: "AuthGithubLogin",
-        label: labelOption,
-        token: null,
-        scopes: null,
-        envGlobalPath: view.snapshot.globalEnvPath
-      })),
-    Match.when("ClaudeOauth", () =>
-      authClaudeLogin({
-        _tag: "AuthClaudeLogin",
-        label: labelOption,
-        claudeAuthPath: claudeAuthRoot
-      })),
-    Match.when("ClaudeLogout", () =>
-      authClaudeLogout({
-        _tag: "AuthClaudeLogout",
-        label: labelOption,
-        claudeAuthPath: claudeAuthRoot
-      })),
-    Match.when("GeminiApiKey", () => {
-      const apiKey = (values["apiKey"] ?? "").trim()
-      return authGeminiLogin({
-        _tag: "AuthGeminiLogin",
-        label: labelOption,
-        geminiAuthPath: geminiAuthRoot
-      }, apiKey)
-    }),
-    Match.when("GeminiLogout", () =>
-      authGeminiLogout({
-        _tag: "AuthGeminiLogout",
-        label: labelOption,
-        geminiAuthPath: geminiAuthRoot
-      })),
+    Match.when("GithubOauth", () => resolveGithubOauthEffect(labelOption, view.snapshot.globalEnvPath)),
+    Match.when("ClaudeOauth", () => resolveClaudeOauthEffect(labelOption)),
+    Match.when("ClaudeLogout", () => resolveClaudeLogoutEffect(labelOption)),
+    Match.when("GeminiOauth", () => resolveGeminiOauthEffect(labelOption)),
+    Match.when("GeminiApiKey", () => resolveGeminiApiKeyEffect(labelOption, (values["apiKey"] ?? "").trim())),
+    Match.when("GeminiLogout", () => resolveGeminiLogoutEffect(labelOption)),
     Match.when("GithubRemove", (flow) => writeAuthFlow(cwd, flow, values)),
     Match.when("GitSet", (flow) => writeAuthFlow(cwd, flow, values)),
     Match.when("GitRemove", (flow) => writeAuthFlow(cwd, flow, values)),

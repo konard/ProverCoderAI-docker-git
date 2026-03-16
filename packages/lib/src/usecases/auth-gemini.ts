@@ -6,25 +6,34 @@ import { Effect } from "effect"
 
 import type { AuthGeminiLoginCommand, AuthGeminiLogoutCommand, AuthGeminiStatusCommand } from "../core/domain.js"
 import { defaultTemplateConfig } from "../core/domain.js"
-import type { CommandFailedError } from "../shell/errors.js"
+import type { AuthError } from "../shell/errors.js"
+import { CommandFailedError } from "../shell/errors.js"
+import { runGeminiOauthLoginWithPrompt } from "./auth-gemini-oauth.js"
 import { isRegularFile, normalizeAccountLabel } from "./auth-helpers.js"
 import { migrateLegacyOrchLayout } from "./auth-sync.js"
+import { ensureDockerImage } from "./docker-image.js"
 import { resolvePathFromCwd } from "./path-helpers.js"
 import { withFsPathContext } from "./runtime.js"
 import { autoSyncState } from "./state-repo.js"
 
-// CHANGE: add Gemini CLI authentication management
-// WHY: enable Gemini CLI authentication via API key similar to Claude/Codex
-// QUOTE(ТЗ): "Добавь поддержку gemini CLI"
-// REF: issue-146
+// CHANGE: add Gemini CLI authentication management with OAuth and API key support
+// WHY: enable Gemini CLI authentication via API key or OAuth (for headless/Docker environments)
+// QUOTE(ТЗ): "Добавь поддержку gemini CLI", "Типо ждал пока мы вставим ссылку"
+// REF: issue-146, PR-147 comment from skulidropek
 // SOURCE: https://geminicli.com/docs/get-started/authentication/
-// FORMAT THEOREM: forall cmd: authGeminiLogin(cmd) -> api_key_persisted | error
+// FORMAT THEOREM: forall cmd: authGeminiLogin(cmd) -> (api_key_persisted | oauth_completed) | error
 // PURITY: SHELL
-// EFFECT: Effect<void, PlatformError | CommandFailedError, GeminiRuntime>
-// INVARIANT: API key is stored in isolated account directory
-// COMPLEXITY: O(1)
+// EFFECT: Effect<void, PlatformError | CommandFailedError | AuthError, GeminiRuntime>
+// INVARIANT: Credentials are stored in isolated account directory
+// COMPLEXITY: O(1) for API key, O(user_interaction) for OAuth
 
 type GeminiRuntime = FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+type GeminiAuthMethod = "none" | "api-key" | "oauth"
+
+const geminiImageName = "docker-git-auth-gemini:latest"
+const geminiImageDir = ".docker-git/.orch/auth/gemini/.image"
+const geminiContainerHomeDir = "/gemini-home"
+const geminiCredentialsDir = ".gemini"
 
 type GeminiAccountContext = {
   readonly accountLabel: string
@@ -40,6 +49,31 @@ const geminiEnvFileName = ".env"
 
 const geminiApiKeyPath = (accountPath: string): string => `${accountPath}/${geminiApiKeyFileName}`
 const geminiEnvFilePath = (accountPath: string): string => `${accountPath}/${geminiEnvFileName}`
+const geminiCredentialsPath = (accountPath: string): string => `${accountPath}/${geminiCredentialsDir}`
+
+// CHANGE: render Dockerfile for Gemini CLI authentication image
+// WHY: Gemini CLI OAuth requires running in Docker for headless environments
+// QUOTE(ТЗ): "Типо ждал пока мы вставим ссылку"
+// REF: issue-146, PR-147 comment
+// SOURCE: https://github.com/google-gemini/gemini-cli
+// FORMAT THEOREM: renderGeminiDockerfile() -> valid_dockerfile
+// PURITY: CORE
+// INVARIANT: Image includes Node.js and Gemini CLI
+// COMPLEXITY: O(1)
+const renderGeminiDockerfile = (): string =>
+  String.raw`FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl bsdutils \
+  && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+  && apt-get install -y --no-install-recommends nodejs \
+  && node -v \
+  && npm -v \
+  && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @google/gemini-cli@latest
+ENTRYPOINT ["/bin/bash", "-c"]
+`
 
 const ensureGeminiOrchLayout = (
   cwd: string
@@ -66,7 +100,8 @@ const withGeminiAuth = <A, E>(
   command: AuthGeminiLoginCommand | AuthGeminiLogoutCommand | AuthGeminiStatusCommand,
   run: (
     context: GeminiAccountContext
-  ) => Effect.Effect<A, E, CommandExecutor.CommandExecutor>
+  ) => Effect.Effect<A, E, CommandExecutor.CommandExecutor>,
+  options: { readonly buildImage?: boolean } = {}
 ): Effect.Effect<A, E | PlatformError | CommandFailedError, GeminiRuntime> =>
   withFsPathContext(({ cwd, fs, path }) =>
     Effect.gen(function*(_) {
@@ -74,6 +109,16 @@ const withGeminiAuth = <A, E>(
       const rootPath = resolvePathFromCwd(path, cwd, command.geminiAuthPath)
       const { accountLabel, accountPath } = resolveGeminiAccountPath(path, rootPath, command.label)
       yield* _(fs.makeDirectory(accountPath, { recursive: true }))
+      if (options.buildImage === true) {
+        yield* _(
+          ensureDockerImage(fs, path, cwd, {
+            imageName: geminiImageName,
+            imageDir: geminiImageDir,
+            dockerfile: renderGeminiDockerfile(),
+            buildLabel: "gemini auth"
+          })
+        )
+      }
       return yield* _(run({ accountLabel, accountPath, cwd, fs }))
     })
   )
@@ -110,6 +155,63 @@ const readApiKey = (
     }
 
     return null
+  })
+
+// CHANGE: check for OAuth credentials in .gemini directory
+// WHY: Gemini CLI stores OAuth tokens in ~/.gemini after successful OAuth flow
+// QUOTE(ТЗ): "Типо ждал пока мы вставим ссылку"
+// REF: issue-146, PR-147 comment
+// SOURCE: https://github.com/google-gemini/gemini-cli
+// FORMAT THEOREM: hasOauthCredentials(fs, accountPath) -> boolean
+// PURITY: SHELL
+// INVARIANT: checks for existence of OAuth token file
+// COMPLEXITY: O(1)
+const hasOauthCredentials = (
+  fs: FileSystem.FileSystem,
+  accountPath: string
+): Effect.Effect<boolean, PlatformError> =>
+  Effect.gen(function*(_) {
+    const credentialsDir = geminiCredentialsPath(accountPath)
+    const dirExists = yield* _(fs.exists(credentialsDir))
+    if (!dirExists) {
+      return false
+    }
+    // Check for various possible credential files Gemini CLI might create
+    const possibleFiles = [
+      `${credentialsDir}/oauth-tokens.json`,
+      `${credentialsDir}/credentials.json`,
+      `${credentialsDir}/application_default_credentials.json`
+    ]
+    for (const filePath of possibleFiles) {
+      const fileExists = yield* _(isRegularFile(fs, filePath))
+      if (fileExists) {
+        return true
+      }
+    }
+    return false
+  })
+
+// CHANGE: resolve Gemini authentication method
+// WHY: need to detect whether user authenticated via API key or OAuth
+// QUOTE(ТЗ): "Добавь поддержку gemini CLI"
+// REF: issue-146
+// SOURCE: https://geminicli.com/docs/get-started/authentication/
+// FORMAT THEOREM: resolveGeminiAuthMethod(fs, accountPath) -> GeminiAuthMethod
+// PURITY: SHELL
+// INVARIANT: API key takes precedence over OAuth credentials
+// COMPLEXITY: O(1)
+const resolveGeminiAuthMethod = (
+  fs: FileSystem.FileSystem,
+  accountPath: string
+): Effect.Effect<GeminiAuthMethod, PlatformError> =>
+  Effect.gen(function*(_) {
+    const apiKey = yield* _(readApiKey(fs, accountPath))
+    if (apiKey !== null) {
+      return "api-key"
+    }
+
+    const hasOauth = yield* _(hasOauthCredentials(fs, accountPath))
+    return hasOauth ? "oauth" : "none"
   })
 
 // CHANGE: login to Gemini CLI by storing API key (menu version with direct key)
@@ -151,38 +253,77 @@ export const authGeminiLoginCli = (
   _command: AuthGeminiLoginCommand
 ): Effect.Effect<void, PlatformError | CommandFailedError, GeminiRuntime> =>
   Effect.gen(function*(_) {
-    yield* _(Effect.log("Gemini CLI uses API key authentication."))
-    yield* _(Effect.log("To get an API key:"))
-    yield* _(Effect.log("  1. Go to https://ai.google.dev/aistudio"))
-    yield* _(Effect.log("  2. Create or retrieve your API key"))
-    yield* _(Effect.log("  3. Use the menu (docker-git menu) to add your API key"))
-    yield* _(Effect.log("  Or set GEMINI_API_KEY environment variable directly."))
+    yield* _(Effect.log("Gemini CLI supports two authentication methods:"))
+    yield* _(Effect.log(""))
+    yield* _(Effect.log("1. API Key (recommended for simplicity):"))
+    yield* _(Effect.log("   - Go to https://ai.google.dev/aistudio"))
+    yield* _(Effect.log("   - Create or retrieve your API key"))
+    yield* _(Effect.log("   - Use: docker-git menu -> Auth profiles -> Gemini CLI: set API key"))
+    yield* _(Effect.log(""))
+    yield* _(Effect.log("2. OAuth (Sign in with Google):"))
+    yield* _(Effect.log("   - Use: docker-git menu -> Auth profiles -> Gemini CLI: login via OAuth"))
+    yield* _(Effect.log("   - Follow the prompts to authenticate with your Google account"))
   })
 
+// CHANGE: login to Gemini CLI via OAuth in Docker container
+// WHY: enable Gemini CLI OAuth authentication in headless/Docker environments
+// QUOTE(ТЗ): "Мне надо что бы он её умел принимать, типо ждал пока мы вставим ссылку"
+// REF: issue-146, PR-147 comment from skulidropek
+// SOURCE: https://github.com/google-gemini/gemini-cli
+// FORMAT THEOREM: forall cmd: authGeminiLoginOauth(cmd) -> oauth_credentials_stored | error
+// PURITY: SHELL
+// EFFECT: Effect<void, AuthError | PlatformError | CommandFailedError, GeminiRuntime>
+// INVARIANT: OAuth credentials are stored in account directory after successful auth
+// COMPLEXITY: O(user_interaction)
+export const authGeminiLoginOauth = (
+  command: AuthGeminiLoginCommand
+): Effect.Effect<void, AuthError | PlatformError | CommandFailedError, GeminiRuntime> => {
+  const accountLabel = normalizeAccountLabel(command.label, "default")
+  return withGeminiAuth(
+    command,
+    ({ accountPath, cwd, fs }) =>
+      Effect.gen(function*(_) {
+        // Ensure .gemini directory exists for OAuth credentials storage
+        const credentialsDir = geminiCredentialsPath(accountPath)
+        yield* _(fs.makeDirectory(credentialsDir, { recursive: true }))
+
+        yield* _(
+          runGeminiOauthLoginWithPrompt(cwd, accountPath, {
+            image: geminiImageName,
+            containerPath: geminiContainerHomeDir
+          })
+        )
+      }),
+    { buildImage: true }
+  ).pipe(
+    Effect.zipRight(autoSyncState(`chore(state): auth gemini oauth ${accountLabel}`))
+  )
+}
+
 // CHANGE: show Gemini CLI auth status for a given label
-// WHY: allow verifying API key presence without exposing credentials
+// WHY: allow verifying API key/OAuth presence without exposing credentials
 // QUOTE(ТЗ): "Добавь поддержку gemini CLI"
 // REF: issue-146
 // SOURCE: https://geminicli.com/docs/get-started/authentication/
-// FORMAT THEOREM: forall cmd: authGeminiStatus(cmd) -> connected(cmd) | disconnected(cmd)
+// FORMAT THEOREM: forall cmd: authGeminiStatus(cmd) -> connected(cmd, method) | disconnected(cmd)
 // PURITY: SHELL
 // EFFECT: Effect<void, PlatformError | CommandFailedError, GeminiRuntime>
-// INVARIANT: never logs API keys
+// INVARIANT: never logs API keys or OAuth tokens
 // COMPLEXITY: O(1)
 export const authGeminiStatus = (
   command: AuthGeminiStatusCommand
 ): Effect.Effect<void, PlatformError | CommandFailedError, GeminiRuntime> =>
   withGeminiAuth(command, ({ accountLabel, accountPath, fs }) =>
     Effect.gen(function*(_) {
-      const apiKey = yield* _(readApiKey(fs, accountPath))
-      if (apiKey === null) {
+      const authMethod = yield* _(resolveGeminiAuthMethod(fs, accountPath))
+      if (authMethod === "none") {
         yield* _(Effect.log(`Gemini not connected (${accountLabel}).`))
         return
       }
-      yield* _(Effect.log(`Gemini connected (${accountLabel}, api-key).`))
+      yield* _(Effect.log(`Gemini connected (${accountLabel}, ${authMethod}).`))
     }))
 
-// CHANGE: logout Gemini CLI by clearing API key for a label
+// CHANGE: logout Gemini CLI by clearing API key and OAuth credentials for a label
 // WHY: allow revoking Gemini CLI access deterministically
 // QUOTE(ТЗ): "Добавь поддержку gemini CLI"
 // REF: issue-146
@@ -190,7 +331,7 @@ export const authGeminiStatus = (
 // FORMAT THEOREM: forall cmd: authGeminiLogout(cmd) -> credentials_cleared(cmd)
 // PURITY: SHELL
 // EFFECT: Effect<void, PlatformError | CommandFailedError, GeminiRuntime>
-// INVARIANT: all credential files are removed from account directory
+// INVARIANT: all credential files (API key and OAuth) are removed from account directory
 // COMPLEXITY: O(1)
 export const authGeminiLogout = (
   command: AuthGeminiLogoutCommand
@@ -200,8 +341,11 @@ export const authGeminiLogout = (
     yield* _(
       withGeminiAuth(command, ({ accountPath, fs }) =>
         Effect.gen(function*(_) {
+          // Clear API key
           yield* _(fs.remove(geminiApiKeyPath(accountPath), { force: true }))
           yield* _(fs.remove(geminiEnvFilePath(accountPath), { force: true }))
+          // Clear OAuth credentials (entire .gemini directory)
+          yield* _(fs.remove(geminiCredentialsPath(accountPath), { recursive: true, force: true }))
         }))
     )
     yield* _(autoSyncState(`chore(state): auth gemini logout ${accountLabel}`))

@@ -17,6 +17,7 @@ import { ensureEnvFile, parseEnvEntries, readEnvText, removeEnvKey, upsertEnvKey
 import { ensureGhAuthImage, ghAuthDir, ghAuthRoot, ghImageName } from "./github-auth-image.js"
 import { resolvePathFromCwd } from "./path-helpers.js"
 import { withFsPathContext } from "./runtime.js"
+import { ensureStateDotDockerGitRepo } from "./state-repo-github.js"
 import { autoSyncState } from "./state-repo.js"
 
 type GithubTokenEntry = {
@@ -200,7 +201,7 @@ const runGithubInteractiveLogin = (
   path: Path.Path,
   envPath: string,
   command: AuthGithubLoginCommand
-): Effect.Effect<void, AuthError | CommandFailedError | PlatformError, GithubRuntime> =>
+): Effect.Effect<string, AuthError | CommandFailedError | PlatformError, GithubRuntime> =>
   Effect.gen(function*(_) {
     const rootPath = resolvePathFromCwd(path, cwd, ghAuthRoot)
     const accountLabel = normalizeAccountLabel(command.label, "default")
@@ -214,6 +215,7 @@ const runGithubInteractiveLogin = (
     yield* _(ensureEnvFile(fs, path, envPath))
     const key = buildGithubTokenKey(command.label)
     yield* _(persistGithubToken(fs, envPath, key, resolved))
+    return resolved
   })
 
 // CHANGE: login to GitHub by persisting a token in the shared env file
@@ -221,10 +223,10 @@ const runGithubInteractiveLogin = (
 // QUOTE(ТЗ): "система авторизации"
 // REF: user-request-2026-01-28-auth
 // SOURCE: n/a
-// FORMAT THEOREM: forall t: login(t) -> env(GITHUB_TOKEN)=t
+// FORMAT THEOREM: forall t: login(t) -> env(GITHUB_TOKEN)=t ∧ cloned(~/.docker-git)
 // PURITY: SHELL
 // EFFECT: Effect<void, CommandFailedError | PlatformError, CommandExecutor>
-// INVARIANT: token is never logged
+// INVARIANT: token is never logged; state repo setup is best-effort
 // COMPLEXITY: O(n) where n = |env|
 export const authGithubLogin = (
   command: AuthGithubLoginCommand
@@ -239,10 +241,12 @@ export const authGithubLogin = (
       if (token.length > 0) {
         yield* _(ensureEnvFile(fs, path, envPath))
         yield* _(persistGithubToken(fs, envPath, key, token))
+        yield* _(ensureStateDotDockerGitRepo(token))
         yield* _(autoSyncState(`chore(state): auth gh ${label}`))
         return
       }
-      yield* _(runGithubInteractiveLogin(cwd, fs, path, envPath, command))
+      const resolvedToken = yield* _(runGithubInteractiveLogin(cwd, fs, path, envPath, command))
+      yield* _(ensureStateDotDockerGitRepo(resolvedToken))
       yield* _(autoSyncState(`chore(state): auth gh ${label}`))
     })
   )

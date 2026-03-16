@@ -450,7 +450,7 @@ export const makeRouter = () => {
         return yield* _(jsonResponse(result, 200))
       }).pipe(Effect.catchAll(errorResponse))
     ),
-    HttpRouter.get(
+    HttpRouter.post(
       "/auth/github/status",
       Effect.gen(function*(_) {
         const req = yield* _(HttpServerRequest.schemaBodyJson(AuthGithubStatusRequestSchema))
@@ -474,7 +474,7 @@ export const makeRouter = () => {
         return yield* _(jsonResponse(result, 200))
       }).pipe(Effect.catchAll(errorResponse))
     ),
-    HttpRouter.get(
+    HttpRouter.post(
       "/auth/codex/status",
       Effect.gen(function*(_) {
         const req = yield* _(HttpServerRequest.schemaBodyJson(AuthCodexStatusRequestSchema))
@@ -498,7 +498,7 @@ export const makeRouter = () => {
         return yield* _(jsonResponse(result, 200))
       }).pipe(Effect.catchAll(errorResponse))
     ),
-    HttpRouter.get(
+    HttpRouter.post(
       "/auth/claude/status",
       Effect.gen(function*(_) {
         const req = yield* _(HttpServerRequest.schemaBodyJson(AuthClaudeStatusRequestSchema))

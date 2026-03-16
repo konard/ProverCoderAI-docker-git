@@ -253,9 +253,16 @@ const adoptRemoteHistoryIfOrphan = (
       return // Histories are related — normal rebase in stateSync will handle it
     }
 
-    yield* _(Effect.logWarning(`Local history has no common ancestor with ${remoteRef}; realigning with remote`))
-    yield* _(git(root, ["reset", "--soft", remoteRef], gitBaseEnv))
-    yield* _(Effect.log(`Realigned with remote history from ${remoteRef}`))
+    // Merge unrelated histories so both are preserved; prefer local on conflict
+    yield* _(Effect.logWarning(`Local history has no common ancestor with ${remoteRef}; merging unrelated histories`))
+    yield* _(
+      git(
+        root,
+        ["merge", "--allow-unrelated-histories", "--no-edit", "-s", "recursive", "-X", "ours", remoteRef],
+        gitBaseEnv
+      )
+    )
+    yield* _(Effect.log(`Merged unrelated histories from ${remoteRef}`))
   })
 
 export const stateInit = (

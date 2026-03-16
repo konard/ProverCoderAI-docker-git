@@ -59,34 +59,41 @@ const hasApiKeyInEnvFile = (
 // WHY: Gemini CLI stores OAuth tokens in ~/.gemini after successful OAuth flow
 // QUOTE(ТЗ): "Типо ждал пока мы вставим ссылку"
 // REF: issue-146, PR-147 comment
-// FORMAT THEOREM: hasOauthCredentials(fs, accountPath) -> boolean
+// FORMAT THEOREM: hasOauthCredentials(fs, credentialsDir) -> boolean
 // PURITY: SHELL
 // INVARIANT: checks for existence of OAuth credential files
-// COMPLEXITY: O(1)
+// COMPLEXITY: O(n) where n = number of possible credential files
+const geminiOauthCredentialFiles = [
+  "oauth-tokens.json",
+  "credentials.json",
+  "application_default_credentials.json"
+] as const
+
+const checkAnyFileExists = (
+  fs: FileSystem.FileSystem,
+  basePath: string,
+  fileNames: ReadonlyArray<string>
+): Effect.Effect<boolean, PlatformError> => {
+  const [first, ...rest] = fileNames
+  if (first === undefined) {
+    return Effect.succeed(false)
+  }
+  return hasFileAtPath(fs, `${basePath}/${first}`).pipe(
+    Effect.flatMap((exists) => exists ? Effect.succeed(true) : checkAnyFileExists(fs, basePath, rest))
+  )
+}
+
 const hasOauthCredentials = (
   fs: FileSystem.FileSystem,
   accountPath: string
-): Effect.Effect<boolean, PlatformError> =>
-  Effect.gen(function*(_) {
-    const credentialsDir = `${accountPath}/${geminiCredentialsDir}`
-    const dirExists = yield* _(hasFileAtPath(fs, credentialsDir))
-    if (!dirExists) {
-      return false
-    }
-    // Check for various possible credential files Gemini CLI might create
-    const possibleFiles = [
-      `${credentialsDir}/oauth-tokens.json`,
-      `${credentialsDir}/credentials.json`,
-      `${credentialsDir}/application_default_credentials.json`
-    ]
-    for (const filePath of possibleFiles) {
-      const fileExists = yield* _(hasFileAtPath(fs, filePath))
-      if (fileExists) {
-        return true
-      }
-    }
-    return false
-  })
+): Effect.Effect<boolean, PlatformError> => {
+  const credentialsDir = `${accountPath}/${geminiCredentialsDir}`
+  return hasFileAtPath(fs, credentialsDir).pipe(
+    Effect.flatMap((dirExists) =>
+      dirExists ? checkAnyFileExists(fs, credentialsDir, geminiOauthCredentialFiles) : Effect.succeed(false)
+    )
+  )
+}
 
 export const hasGeminiAccountCredentials = (
   fs: FileSystem.FileSystem,

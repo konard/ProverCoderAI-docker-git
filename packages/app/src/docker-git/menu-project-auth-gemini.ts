@@ -63,11 +63,11 @@ const hasApiKeyInEnvFile = (
 // PURITY: SHELL
 // INVARIANT: checks for existence of OAuth credential files
 // COMPLEXITY: O(n) where n = number of possible credential files
-const geminiOauthCredentialFiles = [
+const geminiOauthCredentialFiles: ReadonlyArray<string> = [
   "oauth-tokens.json",
   "credentials.json",
   "application_default_credentials.json"
-] as const
+]
 
 const checkAnyFileExists = (
   fs: FileSystem.FileSystem,

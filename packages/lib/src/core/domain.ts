@@ -2,7 +2,7 @@ export type { MenuAction, ParseError } from "./menu.js"
 export { parseMenuSelection } from "./menu.js"
 export { deriveRepoPathParts, deriveRepoSlug, resolveRepoInput } from "./repo.js"
 
-export type AgentMode = "claude" | "codex"
+export type AgentMode = "claude" | "codex" | "gemini"
 
 export type DockerNetworkMode = "shared" | "project"
 
@@ -34,6 +34,9 @@ export interface TemplateConfig {
   readonly codexAuthPath: string
   readonly codexSharedAuthPath: string
   readonly codexHome: string
+  readonly geminiAuthLabel?: string | undefined
+  readonly geminiAuthPath: string
+  readonly geminiHome: string
   readonly cpuLimit?: string | undefined
   readonly ramLimit?: string | undefined
   readonly dockerNetworkMode: DockerNetworkMode
@@ -133,6 +136,7 @@ export interface ApplyCommand {
   readonly gitTokenLabel?: string | undefined
   readonly codexTokenLabel?: string | undefined
   readonly claudeTokenLabel?: string | undefined
+  readonly geminiTokenLabel?: string | undefined
   readonly cpuLimit?: string | undefined
   readonly ramLimit?: string | undefined
   readonly enableMcpPlaywright?: boolean | undefined
@@ -238,6 +242,35 @@ export interface AuthClaudeLogoutCommand {
   readonly claudeAuthPath: string
 }
 
+// CHANGE: add Gemini CLI auth commands
+// WHY: enable Gemini CLI authentication management similar to Claude/Codex
+// QUOTE(ТЗ): "Добавь поддержку gemini CLI"
+// REF: issue-146
+// SOURCE: https://geminicli.com/docs/get-started/authentication/
+// FORMAT THEOREM: forall cmd ∈ AuthGeminiCommand: cmd.geminiAuthPath is valid path
+// PURITY: CORE
+// EFFECT: n/a
+// INVARIANT: authentication state is isolated by label
+// COMPLEXITY: O(1)
+export interface AuthGeminiLoginCommand {
+  readonly _tag: "AuthGeminiLogin"
+  readonly label: string | null
+  readonly geminiAuthPath: string
+  readonly isWeb: boolean
+}
+
+export interface AuthGeminiStatusCommand {
+  readonly _tag: "AuthGeminiStatus"
+  readonly label: string | null
+  readonly geminiAuthPath: string
+}
+
+export interface AuthGeminiLogoutCommand {
+  readonly _tag: "AuthGeminiLogout"
+  readonly label: string | null
+  readonly geminiAuthPath: string
+}
+
 // CHANGE: add session gist backup commands for PR-based session history
 // WHY: enables returning to old AI sessions via private gists linked to PRs
 // QUOTE(ТЗ): "иметь возможность возвращаться ко всем старым сессиям с агентами"
@@ -276,7 +309,6 @@ export type SessionGistCommand =
   | SessionGistListCommand
   | SessionGistViewCommand
   | SessionGistDownloadCommand
-
 export type SessionsCommand =
   | SessionsListCommand
   | SessionsKillCommand
@@ -297,6 +329,9 @@ export type AuthCommand =
   | AuthClaudeLoginCommand
   | AuthClaudeStatusCommand
   | AuthClaudeLogoutCommand
+  | AuthGeminiLoginCommand
+  | AuthGeminiStatusCommand
+  | AuthGeminiLogoutCommand
 
 export type StateCommand =
   | StatePathCommand
@@ -367,6 +402,8 @@ export const defaultTemplateConfig = {
   codexAuthPath: "./.docker-git/.orch/auth/codex",
   codexSharedAuthPath: "./.docker-git/.orch/auth/codex",
   codexHome: "/home/dev/.codex",
+  geminiAuthPath: "./.docker-git/.orch/auth/gemini",
+  geminiHome: "/home/dev/.gemini",
   cpuLimit: defaultCpuLimit,
   ramLimit: defaultRamLimit,
   dockerNetworkMode: defaultDockerNetworkMode,

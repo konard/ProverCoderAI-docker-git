@@ -19,6 +19,7 @@ import {
   renderEntrypointCodexSharedAuth,
   renderEntrypointMcpPlaywright
 } from "./templates-entrypoint/codex.js"
+import { renderEntrypointGeminiConfig } from "./templates-entrypoint/gemini.js"
 import { renderEntrypointGitConfig, renderEntrypointGitHooks } from "./templates-entrypoint/git.js"
 import { renderEntrypointDockerGitBootstrap } from "./templates-entrypoint/nested-docker-git.js"
 import { renderEntrypointOpenCodeConfig } from "./templates-entrypoint/opencode.js"
@@ -52,6 +53,7 @@ export const renderEntrypoint = (config: TemplateConfig): string =>
     renderEntrypointDockerSocket(config),
     renderEntrypointGitConfig(config),
     renderEntrypointClaudeConfig(config),
+    renderEntrypointGeminiConfig(config),
     renderEntrypointGitHooks(),
     renderEntrypointBackgroundTasks(config),
     renderEntrypointBaseline(),

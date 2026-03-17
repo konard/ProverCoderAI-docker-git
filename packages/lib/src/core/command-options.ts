@@ -41,6 +41,7 @@ export interface RawOptions {
   readonly scopes?: string
   readonly message?: string
   readonly authWeb?: boolean
+  readonly authOauth?: boolean
   readonly outDir?: string
   readonly projectDir?: string
   readonly lines?: string

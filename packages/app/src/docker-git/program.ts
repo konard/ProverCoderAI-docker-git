@@ -8,6 +8,10 @@ import {
   authCodexLogin,
   authCodexLogout,
   authCodexStatus,
+  authGeminiLoginCli,
+  authGeminiLoginOauth,
+  authGeminiLogout,
+  authGeminiStatus,
   authGithubLogin,
   authGithubLogout,
   authGithubStatus
@@ -100,10 +104,13 @@ const handleNonBaseCommand = (command: NonBaseCommand) =>
       Match.when({ _tag: "AuthClaudeLogout" }, (cmd) => authClaudeLogout(cmd)),
       Match.when({ _tag: "Attach" }, (cmd) => attachTmux(cmd)),
       Match.when({ _tag: "Panes" }, (cmd) => listTmuxPanes(cmd)),
-      Match.when({ _tag: "SessionsList" }, (cmd) => listTerminalSessions(cmd)),
-      Match.when({ _tag: "SessionsKill" }, (cmd) => killTerminalProcess(cmd))
+      Match.when({ _tag: "SessionsList" }, (cmd) => listTerminalSessions(cmd))
     )
     .pipe(
+      Match.when({ _tag: "AuthGeminiLogin" }, (cmd) => cmd.isWeb ? authGeminiLoginOauth(cmd) : authGeminiLoginCli(cmd)),
+      Match.when({ _tag: "AuthGeminiStatus" }, (cmd) => authGeminiStatus(cmd)),
+      Match.when({ _tag: "AuthGeminiLogout" }, (cmd) => authGeminiLogout(cmd)),
+      Match.when({ _tag: "SessionsKill" }, (cmd) => killTerminalProcess(cmd)),
       Match.when({ _tag: "Apply" }, (cmd) => applyProjectConfig(cmd)),
       Match.when({ _tag: "SessionsLogs" }, (cmd) => tailTerminalLogs(cmd)),
       Match.when({ _tag: "ScrapExport" }, (cmd) => exportScrap(cmd)),

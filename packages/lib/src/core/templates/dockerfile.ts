@@ -60,14 +60,18 @@ RUN set -eu; \
   npm install -g oh-my-opencode@latest "oh-my-opencode-linux-\${OH_MY_OPENCODE_ARCH}@latest"
 RUN oh-my-opencode --version
 RUN npm install -g @anthropic-ai/claude-code@latest
-RUN claude --version`
+RUN claude --version
+RUN npm install -g @google/gemini-cli@latest --force
+RUN gemini --version`
+
+const openCodeVersion = "1.2.27"
 
 const renderDockerfileOpenCode = (): string =>
   `# Tooling: OpenCode (binary)
 RUN set -eu; \
   for attempt in 1 2 3 4 5; do \
     if curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 https://opencode.ai/install \
-      | HOME=/usr/local bash -s -- --no-modify-path; then \
+      | HOME=/usr/local bash -s -- --version ${openCodeVersion} --no-modify-path; then \
       exit 0; \
     fi; \
     echo "opencode install attempt \${attempt} failed; retrying..." >&2; \
@@ -223,7 +227,7 @@ RUN mkdir -p ${config.targetDir} \
   && if [ "${config.targetDir}" != "/" ]; then chown -R 1000:1000 "${config.targetDir}"; fi
 
 COPY entrypoint.sh /entrypoint.sh
-RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
+RUN sed -i 's/\\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 22
 ENTRYPOINT ["/entrypoint.sh"]`

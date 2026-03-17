@@ -6,6 +6,7 @@ import { Effect, pipe } from "effect"
 import { runCommandExitCode } from "../shell/command-runner.js"
 import { CommandFailedError } from "../shell/errors.js"
 import { defaultProjectsRoot } from "./menu-helpers.js"
+import { adoptRemoteHistoryIfOrphan } from "./state-repo/adopt-remote.js"
 import { autoSyncEnvKey, autoSyncStrictEnvKey, isAutoSyncEnabled, isTruthyEnv } from "./state-repo/env.js"
 import {
   git,
@@ -16,6 +17,7 @@ import {
   isGitRepo,
   successExitCode
 } from "./state-repo/git-commands.js"
+import type { GitAuthEnv } from "./state-repo/github-auth.js"
 import { isGithubHttpsRemote, resolveGithubToken, withGithubAskpassEnv } from "./state-repo/github-auth.js"
 import { ensureStateGitignore } from "./state-repo/gitignore.js"
 import { runStateSyncOps, runStateSyncWithToken } from "./state-repo/sync-ops.js"
@@ -131,16 +133,18 @@ export const autoSyncState = (message: string): Effect.Effect<void, never, State
 type StateInitInput = {
   readonly repoUrl: string
   readonly repoRef: string
+  readonly token?: string
 }
 
 const cloneStateRepo = (
   root: string,
-  input: StateInitInput
+  input: StateInitInput,
+  env: GitAuthEnv
 ): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> =>
   Effect.gen(function*(_) {
     const cloneWithBranch = ["clone", "--branch", input.repoRef, input.repoUrl, root]
     const cloneBranchExit = yield* _(
-      runCommandExitCode({ cwd: root, command: "git", args: cloneWithBranch, env: gitBaseEnv })
+      runCommandExitCode({ cwd: root, command: "git", args: cloneWithBranch, env })
     )
     if (cloneBranchExit === successExitCode) {
       return
@@ -155,7 +159,7 @@ const cloneStateRepo = (
     )
     const cloneDefault = ["clone", input.repoUrl, root]
     const cloneDefaultExit = yield* _(
-      runCommandExitCode({ cwd: root, command: "git", args: cloneDefault, env: gitBaseEnv })
+      runCommandExitCode({ cwd: root, command: "git", args: cloneDefault, env })
     )
     if (cloneDefaultExit !== successExitCode) {
       return yield* _(Effect.fail(new CommandFailedError({ command: "git clone", exitCode: cloneDefaultExit })))
@@ -166,7 +170,8 @@ const initRepoIfNeeded = (
   fs: FileSystem.FileSystem,
   path: Path.Path,
   root: string,
-  input: StateInitInput
+  input: StateInitInput,
+  env: GitAuthEnv
 ): Effect.Effect<void, CommandFailedError | PlatformError, StateRepoEnv> =>
   Effect.gen(function*(_) {
     yield* _(fs.makeDirectory(root, { recursive: true }))
@@ -179,32 +184,34 @@ const initRepoIfNeeded = (
 
     const entries = yield* _(fs.readDirectory(root))
     if (entries.length === 0) {
-      yield* _(cloneStateRepo(root, input))
+      yield* _(cloneStateRepo(root, input, env))
       yield* _(Effect.log(`State dir cloned: ${root}`))
       return
     }
 
-    yield* _(git(root, ["init"], gitBaseEnv))
+    yield* _(git(root, ["init", "--initial-branch=main"], env))
   }).pipe(Effect.asVoid)
 
 const ensureOriginRemote = (
   root: string,
-  repoUrl: string
+  repoUrl: string,
+  env: GitAuthEnv
 ): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> =>
   Effect.gen(function*(_) {
-    const setUrlExit = yield* _(gitExitCode(root, ["remote", "set-url", "origin", repoUrl], gitBaseEnv))
+    const setUrlExit = yield* _(gitExitCode(root, ["remote", "set-url", "origin", repoUrl], env))
     if (setUrlExit === successExitCode) {
       return
     }
-    yield* _(git(root, ["remote", "add", "origin", repoUrl], gitBaseEnv))
+    yield* _(git(root, ["remote", "add", "origin", repoUrl], env))
   })
 
 const checkoutBranchBestEffort = (
   root: string,
-  repoRef: string
+  repoRef: string,
+  env: GitAuthEnv
 ): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> =>
   Effect.gen(function*(_) {
-    const checkoutExit = yield* _(gitExitCode(root, ["checkout", "-B", repoRef], gitBaseEnv))
+    const checkoutExit = yield* _(gitExitCode(root, ["checkout", "-B", repoRef], env))
     if (checkoutExit === successExitCode) {
       return
     }
@@ -213,20 +220,28 @@ const checkoutBranchBestEffort = (
 
 export const stateInit = (
   input: StateInitInput
-): Effect.Effect<void, CommandFailedError | PlatformError, StateRepoEnv> =>
-  Effect.gen(function*(_) {
-    const fs = yield* _(FileSystem.FileSystem)
-    const path = yield* _(Path.Path)
-    const root = resolveStateRoot(path, process.cwd())
+): Effect.Effect<void, CommandFailedError | PlatformError, StateRepoEnv> => {
+  const doInit = (env: GitAuthEnv) =>
+    Effect.gen(function*(_) {
+      const fs = yield* _(FileSystem.FileSystem)
+      const path = yield* _(Path.Path)
+      const root = resolveStateRoot(path, process.cwd())
 
-    yield* _(initRepoIfNeeded(fs, path, root, input))
-    yield* _(ensureOriginRemote(root, input.repoUrl))
-    yield* _(checkoutBranchBestEffort(root, input.repoRef))
-    yield* _(ensureStateGitignore(fs, path, root))
+      yield* _(initRepoIfNeeded(fs, path, root, input, env))
+      yield* _(ensureOriginRemote(root, input.repoUrl, env))
+      yield* _(adoptRemoteHistoryIfOrphan(root, input.repoRef, env))
+      yield* _(checkoutBranchBestEffort(root, input.repoRef, env))
+      yield* _(ensureStateGitignore(fs, path, root))
 
-    yield* _(Effect.log(`State dir ready: ${root}`))
-    yield* _(Effect.log(`Remote: ${input.repoUrl}`))
-  }).pipe(Effect.asVoid)
+      yield* _(Effect.log(`State dir ready: ${root}`))
+      yield* _(Effect.log(`Remote: ${input.repoUrl}`))
+    }).pipe(Effect.asVoid)
+
+  const token = input.token?.trim() ?? ""
+  return token.length > 0 && isGithubHttpsRemote(input.repoUrl)
+    ? withGithubAskpassEnv(token, doInit)
+    : doInit(gitBaseEnv)
+}
 
 export const stateStatus = Effect.gen(function*(_) {
   const path = yield* _(Path.Path)

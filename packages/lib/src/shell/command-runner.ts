@@ -62,7 +62,7 @@ export const runCommandExitCode = (
 ): Effect.Effect<number, PlatformError, CommandExecutor.CommandExecutor> =>
   Effect.map(
     Command.exitCode(
-      buildCommand(spec, "pipe", "pipe", "inherit")
+      buildCommand(spec, "pipe", "pipe", "pipe")
     ),
     Number
   )

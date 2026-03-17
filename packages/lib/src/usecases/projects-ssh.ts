@@ -1,7 +1,7 @@
 import type * as CommandExecutor from "@effect/platform/CommandExecutor"
 import type { PlatformError } from "@effect/platform/Error"
 import * as FileSystem from "@effect/platform/FileSystem"
-import * as Path from "@effect/platform/Path"
+import type * as Path from "@effect/platform/Path"
 import { Duration, Effect, pipe, Schedule } from "effect"
 
 import { runCommandExitCode, runCommandWithExitCodes } from "../shell/command-runner.js"
@@ -169,11 +169,11 @@ export const connectProjectSshWithUp = (
     const template = yield* _(runDockerComposeUpWithPortCheck(item.projectDir))
 
     const isInsideContainer = yield* _(fs.exists("/.dockerenv"))
-    let ipAddress: string | undefined = undefined
+    let ipAddress: string | undefined
     if (isInsideContainer) {
       const containerIp = yield* _(
         runDockerInspectContainerIp(item.projectDir, template.containerName).pipe(
-          Effect.catchAll(() => Effect.succeed(""))
+          Effect.orElse(() => Effect.succeed(""))
         )
       )
       if (containerIp.length > 0) {
@@ -209,7 +209,9 @@ export const listProjectStatus: Effect.Effect<
   forEachProjectStatus(index.configPaths, (status) =>
     Effect.gen(function*(_) {
       const fs = yield* _(FileSystem.FileSystem)
-      const ipAddress = yield* _(getContainerIpIfInsideContainer(fs, status.projectDir, status.config.template.containerName))
+      const ipAddress = yield* _(
+        getContainerIpIfInsideContainer(fs, status.projectDir, status.config.template.containerName)
+      )
 
       yield* _(Effect.log(renderProjectStatusHeader(status)))
       yield* _(Effect.log(`SSH access: ${buildSshCommand(status.config.template, sshKey, ipAddress)}`))
@@ -226,6 +228,5 @@ export const listProjectStatus: Effect.Effect<
           ),
         onSuccess: () => Effect.void
       })
-    )
-  )
+    ))
 ).pipe(Effect.asVoid)

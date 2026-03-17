@@ -23,10 +23,7 @@ import { renderError } from "../errors.js"
 import { applyGithubForkConfig } from "../github-fork.js"
 import { defaultProjectsRoot } from "../menu-helpers.js"
 import { findSshPrivateKey } from "../path-helpers.js"
-import {
-  buildSshCommand,
-  getContainerIpIfInsideContainer
-} from "../projects-core.js"
+import { buildSshCommand, getContainerIpIfInsideContainer } from "../projects-core.js"
 import { resolveTemplateResourceLimits } from "../resource-limits.js"
 import { autoSyncState } from "../state-repo.js"
 import { ensureTerminalCursorVisible } from "../terminal-cursor.js"
@@ -148,7 +145,7 @@ const openSshBestEffort = (
 
     const ipAddress = yield* _(
       getContainerIpIfInsideContainer(fs, process.cwd(), template.containerName).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined))
+        Effect.orElse(() => Effect.succeed<string | undefined>(""))
       )
     )
 

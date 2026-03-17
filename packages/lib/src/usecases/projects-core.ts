@@ -6,8 +6,8 @@ import { Effect, pipe } from "effect"
 
 import type { ProjectConfig, TemplateConfig } from "../core/domain.js"
 import { deriveRepoPathParts } from "../core/domain.js"
-import { runDockerInspectContainerIp } from "../shell/docker.js"
 import { readProjectConfig } from "../shell/config.js"
+import { runDockerInspectContainerIp } from "../shell/docker.js"
 import type { ConfigDecodeError, ConfigNotFoundError } from "../shell/errors.js"
 import { resolveBaseDir } from "../shell/paths.js"
 import { findDockerGitConfigPaths } from "./docker-git-config-search.js"
@@ -89,12 +89,12 @@ export const getContainerIpIfInsideContainer = (
   Effect.gen(function*(_) {
     const isInsideContainer = yield* _(fs.exists("/.dockerenv"))
     if (!isInsideContainer) {
-      return undefined
+      return
     }
     return yield* _(
       runDockerInspectContainerIp(projectDir, containerName).pipe(
-        Effect.map((ip) => (ip.length > 0 ? ip : undefined)),
-        Effect.catchAll(() => Effect.succeed(undefined))
+        Effect.orElse(() => Effect.succeed("")),
+        Effect.map((ip) => (ip.length > 0 ? ip : undefined))
       )
     )
   })
@@ -117,7 +117,11 @@ const findProjectConfigPaths = (
 export const loadProjectSummary = (
   configPath: string,
   sshKey: string | null
-): Effect.Effect<ProjectSummary, ProjectLoadError, FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor> =>
+): Effect.Effect<
+  ProjectSummary,
+  ProjectLoadError,
+  FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+> =>
   Effect.gen(function*(_) {
     const { config, fs, path, projectDir } = yield* _(loadProjectBase(configPath))
 

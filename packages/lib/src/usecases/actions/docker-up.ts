@@ -38,12 +38,12 @@ const logSshAccess = (
     const path = yield* _(Path.Path)
 
     const isInsideContainer = yield* _(fs.exists("/.dockerenv"))
-    let ipAddress: string | undefined = undefined
+    let ipAddress: string | undefined
 
     if (isInsideContainer) {
       const containerIp = yield* _(
         runDockerInspectContainerIp(baseDir, config.containerName).pipe(
-          Effect.catchAll(() => Effect.succeed(""))
+          Effect.orElse(() => Effect.succeed(""))
         )
       )
       if (containerIp.length > 0) {

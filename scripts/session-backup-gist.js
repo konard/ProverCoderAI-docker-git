@@ -3,14 +3,14 @@
 /**
  * Session Backup to GitHub Gist
  *
- * This script backs up AI agent session files (~/.codex, ~/.claude) to a private GitHub Gist
+ * This script backs up AI agent session files (~/.codex, ~/.claude, ~/.gemini) to a private GitHub Gist
  * and optionally posts a comment to the associated PR with the gist link.
  *
  * Usage:
  *   node scripts/session-backup-gist.js [options]
  *
  * Options:
- *   --session-dir <path>    Path to session directory (default: auto-detect ~/.codex or ~/.claude)
+ *   --session-dir <path>    Path to session directory (default: auto-detect ~/.codex, ~/.claude, or ~/.gemini)
  *   --pr-number <number>    PR number to post comment to (optional, auto-detected from branch)
  *   --repo <owner/repo>     Repository (optional, auto-detected from git remote)
  *   --no-comment            Skip posting PR comment
@@ -31,7 +31,7 @@ const os = require("node:os");
 
 // Configuration
 const MAX_GIST_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file limit for gists
-const SESSION_DIR_NAMES = [".codex", ".claude"];
+const SESSION_DIR_NAMES = [".codex", ".claude", ".gemini"];
 const KNOWLEDGE_DIR_NAME = ".knowledge";
 
 /**
@@ -337,7 +337,12 @@ codex resume <session-id>
 
 # For Claude
 claude --resume <session-id>
+
+# For Gemini
+gemini --resume <session-id>
 \`\`\`
+
+For extracting session dialogs, see: https://github.com/ProverCoderAI/context-doc
 
 ---
 *Backup created at: ${timestamp}*`;

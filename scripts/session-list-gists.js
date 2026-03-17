@@ -251,7 +251,9 @@ const downloadGist = (gistId, outputDir, verbose) => {
   console.log("\nTo restore session files, copy them to the appropriate location:");
   console.log("  - .codex/* files -> ~/.codex/");
   console.log("  - .claude/* files -> ~/.claude/");
+  console.log("  - .gemini/* files -> ~/.gemini/");
   console.log("  - .knowledge/* files -> ./.knowledge/");
+  console.log("\nFor extracting session dialogs, see: https://github.com/ProverCoderAI/context-doc");
 };
 
 /**

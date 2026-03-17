@@ -99,19 +99,7 @@ const renderGeminiAuthConfig = (config: TemplateConfig): string =>
     .replaceAll("__GEMINI_AUTH_ROOT__", geminiAuthRootContainerPath(config.sshUser))
     .replaceAll("__GEMINI_HOME_DIR__", config.geminiHome)
 
-const renderGeminiPermissionSettingsConfig = (config: TemplateConfig): string =>
-  String.raw`# Gemini CLI: keep trust settings in sync with docker-git defaults
-GEMINI_SETTINGS_DIR="${config.geminiHome}"
-GEMINI_TRUST_SETTINGS_FILE="$GEMINI_SETTINGS_DIR/trustedFolders.json"
-GEMINI_CONFIG_SETTINGS_FILE="$GEMINI_SETTINGS_DIR/settings.json"
-
-# Wait for symlink to be established by the auth config step
-mkdir -p "$GEMINI_SETTINGS_DIR" || true
-
-# Disable folder trust prompt and enable auto-approval in settings.json
-if [[ ! -f "$GEMINI_CONFIG_SETTINGS_FILE" ]]; then
-  cat <<'EOF' > "$GEMINI_CONFIG_SETTINGS_FILE"
-{
+const geminiSettingsJsonTemplate = `{
   "model": {
     "name": "gemini-3.1-pro-preview-yolo",
     "compressionThreshold": 0.9,
@@ -166,7 +154,21 @@ if [[ ! -f "$GEMINI_CONFIG_SETTINGS_FILE" ]]; then
       "trust": true
     }
   }
-}
+}`
+
+const renderGeminiPermissionSettingsConfig = (config: TemplateConfig): string =>
+  String.raw`# Gemini CLI: keep trust settings in sync with docker-git defaults
+GEMINI_SETTINGS_DIR="${config.geminiHome}"
+GEMINI_TRUST_SETTINGS_FILE="$GEMINI_SETTINGS_DIR/trustedFolders.json"
+GEMINI_CONFIG_SETTINGS_FILE="$GEMINI_SETTINGS_DIR/settings.json"
+
+# Wait for symlink to be established by the auth config step
+mkdir -p "$GEMINI_SETTINGS_DIR" || true
+
+# Disable folder trust prompt and enable auto-approval in settings.json
+if [[ ! -f "$GEMINI_CONFIG_SETTINGS_FILE" ]]; then
+  cat <<'EOF' > "$GEMINI_CONFIG_SETTINGS_FILE"
+${geminiSettingsJsonTemplate}
 EOF
 fi
 

@@ -237,72 +237,70 @@ export const prepareGeminiCredentialsDir = (
     return credentialsDir
   })
 
+export const defaultGeminiSettings = {
+  model: {
+    name: "gemini-3.1-pro-preview-yolo",
+    compressionThreshold: 0.9,
+    disableLoopDetection: true
+  },
+  modelConfigs: {
+    customAliases: {
+      "yolo-ultra": {
+        "modelConfig": {
+          "model": "gemini-3.1-pro-preview-yolo",
+          "generateContentConfig": {
+            "tools": [
+              {
+                "googleSearch": {}
+              },
+              {
+                "urlContext": {}
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  general: {
+    defaultApprovalMode: "auto_edit"
+  },
+  tools: {
+    allowed: [
+      "run_shell_command",
+      "write_file",
+      "googleSearch",
+      "urlContext"
+    ]
+  },
+  sandbox: {
+    enabled: false
+  },
+  security: {
+    folderTrust: {
+      enabled: false
+    },
+    auth: {
+      selectedType: "oauth-personal"
+    },
+    disableYoloMode: false
+  },
+  mcpServers: {
+    playwright: {
+      command: "docker-git-playwright-mcp",
+      args: [],
+      trust: true
+    }
+  }
+}
+
 export const writeInitialSettings = (credentialsDir: string, fs: FileSystem.FileSystem) =>
   Effect.gen(function*(_) {
     const settingsPath = `${credentialsDir}/settings.json`
     yield* _(
       fs.writeFileString(
         settingsPath,
-        JSON.stringify(
-          {
-            model: {
-              name: "gemini-3.1-pro-preview-yolo",
-              compressionThreshold: 0.9,
-              disableLoopDetection: true
-            },
-            modelConfigs: {
-              customAliases: {
-                "yolo-ultra": {
-                  "modelConfig": {
-                    "model": "gemini-3.1-pro-preview-yolo",
-                    "generateContentConfig": {
-                      "tools": [
-                        {
-                          "googleSearch": {}
-                        },
-                        {
-                          "urlContext": {}
-                        }
-                      ]
-                    }
-                  }
-                }
-              }
-            },
-            general: {
-              defaultApprovalMode: "auto_edit"
-            },
-            tools: {
-              allowed: [
-                "run_shell_command",
-                "write_file",
-                "googleSearch",
-                "urlContext"
-              ]
-            },
-            sandbox: {
-              enabled: false
-            },
-            security: {
-              folderTrust: {
-                enabled: false
-              },
-              auth: {
-                selectedType: "oauth-personal"
-              },
-              disableYoloMode: false
-            },
-            mcpServers: {
-              playwright: {
-                command: "docker-git-playwright-mcp",
-                args: [],
-                trust: true
-              }
-            }
-          },
-          null,
-          2
-        ) + "\n"
+        JSON.stringify(defaultGeminiSettings, null, 2) + "\n"
       )
     )
 

@@ -23,7 +23,7 @@ import { renderError } from "../errors.js"
 import { applyGithubForkConfig } from "../github-fork.js"
 import { defaultProjectsRoot } from "../menu-helpers.js"
 import { findSshPrivateKey } from "../path-helpers.js"
-import { buildSshCommand } from "../projects-core.js"
+import { buildSshCommand, getContainerIpIfInsideContainer } from "../projects-core.js"
 import { resolveTemplateResourceLimits } from "../resource-limits.js"
 import { autoSyncState } from "../state-repo.js"
 import { ensureTerminalCursorVisible } from "../terminal-cursor.js"
@@ -97,8 +97,11 @@ const isInteractiveTty = (): boolean => process.stdin.isTTY && process.stdout.is
 const buildSshArgs = (
   config: CreateCommand["config"],
   sshKeyPath: string | null,
-  remoteCommand?: string
+  remoteCommand?: string,
+  ipAddress?: string
 ): ReadonlyArray<string> => {
+  const host = ipAddress ?? "localhost"
+  const port = ipAddress ? 22 : config.sshPort
   const args: Array<string> = []
   if (sshKeyPath !== null) {
     args.push("-i", sshKeyPath)
@@ -113,8 +116,8 @@ const buildSshArgs = (
     "-o",
     "UserKnownHostsFile=/dev/null",
     "-p",
-    String(config.sshPort),
-    `${config.sshUser}@localhost`
+    String(port),
+    `${config.sshUser}@${host}`
   )
   if (remoteCommand !== undefined) {
     args.push(remoteCommand)
@@ -140,8 +143,14 @@ const openSshBestEffort = (
     const fs = yield* _(FileSystem.FileSystem)
     const path = yield* _(Path.Path)
 
+    const ipAddress = yield* _(
+      getContainerIpIfInsideContainer(fs, process.cwd(), template.containerName).pipe(
+        Effect.orElse(() => Effect.succeed<string | undefined>(""))
+      )
+    )
+
     const sshKey = yield* _(findSshPrivateKey(fs, path, process.cwd()))
-    const sshCommand = buildSshCommand(template, sshKey)
+    const sshCommand = buildSshCommand(template, sshKey, ipAddress)
 
     const remoteCommandLabel = remoteCommand === undefined ? "" : ` (${remoteCommand})`
 
@@ -152,7 +161,7 @@ const openSshBestEffort = (
         {
           cwd: process.cwd(),
           command: "ssh",
-          args: buildSshArgs(template, sshKey, remoteCommand)
+          args: buildSshArgs(template, sshKey, remoteCommand, ipAddress)
         },
         [0, 130],
         (exitCode) => new CommandFailedError({ command: "ssh", exitCode })

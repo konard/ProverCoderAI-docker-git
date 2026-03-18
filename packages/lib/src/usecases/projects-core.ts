@@ -1,3 +1,4 @@
+import type * as CommandExecutor from "@effect/platform/CommandExecutor"
 import type { PlatformError } from "@effect/platform/Error"
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Path from "@effect/platform/Path"
@@ -6,6 +7,7 @@ import { Effect, pipe } from "effect"
 import type { ProjectConfig, TemplateConfig } from "../core/domain.js"
 import { deriveRepoPathParts } from "../core/domain.js"
 import { readProjectConfig } from "../shell/config.js"
+import { runDockerInspectContainerIp } from "../shell/docker.js"
 import type { ConfigDecodeError, ConfigNotFoundError } from "../shell/errors.js"
 import { resolveBaseDir } from "../shell/paths.js"
 import { findDockerGitConfigPaths } from "./docker-git-config-search.js"
@@ -18,35 +20,27 @@ const sshOptions = "-tt -Y -o LogLevel=ERROR -o StrictHostKeyChecking=no -o User
 
 export type ProjectLoadError = PlatformError | ConfigNotFoundError | ConfigDecodeError
 
-import { isInsideDocker } from "../shell/docker-env.js"
-
-// CHANGE: detect DinD for SSH command display
-// WHY: in DinD, SSH connects via container name on Docker shared network at port 22
-// PURITY: CORE
-
-const resolveSshDisplay = (config: TemplateConfig): { host: string; port: number } =>
-  isInsideDocker()
-    ? { host: config.containerName, port: 22 }
-    : { host: "localhost", port: config.sshPort }
-
 // CHANGE: use sshpass when no key provided so the command works without interaction
 // WHY: password = sshUser (set via chpasswd at build time); sshpass embeds it in one command
 // PURITY: CORE
 // INVARIANT: sshKey !== null → key auth; sshKey === null → sshpass with default password
 export const buildSshCommand = (
   config: TemplateConfig,
-  sshKey: string | null
+  sshKey: string | null,
+  ipAddress?: string
 ): string => {
-  const target = resolveSshDisplay(config)
+  const host = ipAddress ?? "localhost"
+  const port = ipAddress ? 22 : config.sshPort
   return sshKey === null
-    ? `sshpass -p ${config.sshUser} ssh ${sshOptions} -p ${target.port} ${config.sshUser}@${target.host}`
-    : `ssh -i ${sshKey} ${sshOptions} -p ${target.port} ${config.sshUser}@${target.host}`
+    ? `sshpass -p ${config.sshUser} ssh ${sshOptions} -p ${port} ${config.sshUser}@${host}`
+    : `ssh -i ${sshKey} ${sshOptions} -p ${port} ${config.sshUser}@${host}`
 }
 
 export type ProjectSummary = {
   readonly projectDir: string
   readonly config: ProjectConfig
   readonly sshCommand: string
+  readonly ipAddress?: string | undefined
   readonly authorizedKeysPath: string
   readonly authorizedKeysExists: boolean
 }
@@ -62,6 +56,7 @@ export type ProjectItem = {
   readonly sshPort: number
   readonly targetDir: string
   readonly sshCommand: string
+  readonly ipAddress?: string | undefined
   readonly sshKeyPath: string | null
   readonly authorizedKeysPath: string
   readonly authorizedKeysExists: boolean
@@ -90,6 +85,24 @@ type ProjectBase = {
   readonly config: ProjectConfig
 }
 
+export const getContainerIpIfInsideContainer = (
+  fs: FileSystem.FileSystem,
+  projectDir: string,
+  containerName: string
+): Effect.Effect<string | undefined, PlatformError, CommandExecutor.CommandExecutor> =>
+  Effect.gen(function*(_) {
+    const isInsideContainer = yield* _(fs.exists("/.dockerenv"))
+    if (!isInsideContainer) {
+      return
+    }
+    return yield* _(
+      runDockerInspectContainerIp(projectDir, containerName).pipe(
+        Effect.orElse(() => Effect.succeed("")),
+        Effect.map((ip) => (ip.length > 0 ? ip : undefined))
+      )
+    )
+  })
+
 const loadProjectBase = (
   configPath: string
 ): Effect.Effect<ProjectBase, ProjectLoadError, FileSystem.FileSystem | Path.Path> =>
@@ -108,21 +121,29 @@ const findProjectConfigPaths = (
 export const loadProjectSummary = (
   configPath: string,
   sshKey: string | null
-): Effect.Effect<ProjectSummary, ProjectLoadError, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<
+  ProjectSummary,
+  ProjectLoadError,
+  FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+> =>
   Effect.gen(function*(_) {
     const { config, fs, path, projectDir } = yield* _(loadProjectBase(configPath))
+
+    const ipAddress = yield* _(getContainerIpIfInsideContainer(fs, projectDir, config.template.containerName))
+
     const resolvedAuthorizedKeys = resolveAuthorizedKeysPath(
       path,
       projectDir,
       config.template.authorizedKeysPath
     )
     const authExists = yield* _(fs.exists(resolvedAuthorizedKeys))
-    const sshCommand = buildSshCommand(config.template, sshKey)
+    const sshCommand = buildSshCommand(config.template, sshKey, ipAddress)
 
     return {
       projectDir,
       config,
       sshCommand,
+      ipAddress,
       authorizedKeysPath: resolvedAuthorizedKeys,
       authorizedKeysExists: authExists
     }
@@ -156,13 +177,16 @@ const formatDisplayName = (repoUrl: string): string => {
 export const loadProjectItem = (
   configPath: string,
   sshKey: string | null
-): Effect.Effect<ProjectItem, ProjectLoadError, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<ProjectItem, ProjectLoadError, FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor> =>
   Effect.gen(function*(_) {
     const { config, fs, path, projectDir } = yield* _(loadProjectBase(configPath))
     const template = config.template
+
+    const ipAddress = yield* _(getContainerIpIfInsideContainer(fs, projectDir, template.containerName))
+
     const resolvedAuthorizedKeys = resolveAuthorizedKeysPath(path, projectDir, template.authorizedKeysPath)
     const authExists = yield* _(fs.exists(resolvedAuthorizedKeys))
-    const sshCommand = buildSshCommand(template, sshKey)
+    const sshCommand = buildSshCommand(template, sshKey, ipAddress)
     const displayName = formatDisplayName(template.repoUrl)
 
     return {
@@ -176,6 +200,7 @@ export const loadProjectItem = (
       sshPort: template.sshPort,
       targetDir: template.targetDir,
       sshCommand,
+      ipAddress,
       sshKeyPath: sshKey,
       authorizedKeysPath: resolvedAuthorizedKeys,
       authorizedKeysExists: authExists,

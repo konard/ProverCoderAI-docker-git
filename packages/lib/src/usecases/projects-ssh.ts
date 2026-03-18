@@ -1,12 +1,11 @@
 import type * as CommandExecutor from "@effect/platform/CommandExecutor"
 import type { PlatformError } from "@effect/platform/Error"
-import type { FileSystem as Fs } from "@effect/platform/FileSystem"
-import type { Path as PathService } from "@effect/platform/Path"
+import * as FileSystem from "@effect/platform/FileSystem"
+import type * as Path from "@effect/platform/Path"
 import { Duration, Effect, pipe, Schedule } from "effect"
 
 import { runCommandExitCode, runCommandWithExitCodes } from "../shell/command-runner.js"
-import { isInsideDocker } from "../shell/docker-env.js"
-import { runDockerComposePsFormatted } from "../shell/docker.js"
+import { runDockerComposePsFormatted, runDockerInspectContainerIp } from "../shell/docker.js"
 import {
   CommandFailedError,
   type ConfigDecodeError,
@@ -20,6 +19,7 @@ import {
   buildSshCommand,
   forEachProjectStatus,
   formatComposeRows,
+  getContainerIpIfInsideContainer,
   parseComposePsOutput,
   type ProjectItem,
   renderProjectStatusHeader,
@@ -28,20 +28,15 @@ import {
 import { runDockerComposeUpWithPortCheck } from "./projects-up.js"
 import { ensureTerminalCursorVisible } from "./terminal-cursor.js"
 
-// CHANGE: resolve SSH host and port based on environment
-// WHY: in DinD, connect via container name on Docker shared network at port 22;
-//      outside Docker, use localhost with the mapped host port
+// CHANGE: wrap ssh args with sshpass when no key is available
+// WHY: password = sshUser (set via chpasswd at build time); sshpass embeds it in one command
 // PURITY: CORE
-// INVARIANT: DinD → (containerName, 22); host → (localhost, sshPort)
-type SshTarget = { readonly host: string; readonly port: number }
+// INVARIANT: sshKeyPath !== null → key auth; sshKeyPath === null → sshpass with default password
+type SshSpec = { readonly command: string; readonly args: ReadonlyArray<string> }
 
-const resolveSshTarget = (item: ProjectItem): SshTarget =>
-  isInsideDocker()
-    ? { host: item.containerName, port: 22 }
-    : { host: "localhost", port: item.sshPort }
-
-const buildSshArgs = (item: ProjectItem): ReadonlyArray<string> => {
-  const target = resolveSshTarget(item)
+const buildSshArgs = (item: ProjectItem): SshSpec => {
+  const host = item.ipAddress ?? "localhost"
+  const port = item.ipAddress ? 22 : item.sshPort
   const args: Array<string> = []
   if (item.sshKeyPath !== null) {
     args.push("-i", item.sshKeyPath)
@@ -56,19 +51,18 @@ const buildSshArgs = (item: ProjectItem): ReadonlyArray<string> => {
     "-o",
     "UserKnownHostsFile=/dev/null",
     "-p",
-    String(target.port),
-    `${item.sshUser}@${target.host}`
+    String(port),
+    `${item.sshUser}@${host}`
   )
-  return args
+  if (item.sshKeyPath === null) {
+    return { command: "sshpass", args: ["-p", item.sshUser, "ssh", ...args] }
+  }
+  return { command: "ssh", args }
 }
 
-// CHANGE: SSH probe uses sshpass when no key is available
-// WHY: BatchMode=yes prevents password auth, making probe fail in DinD where no private key exists;
-//      sshpass with default password (= sshUser) allows authentication
-// PURITY: CORE
-const buildSshProbeArgs = (item: ProjectItem): { readonly command: string; readonly args: ReadonlyArray<string> } => {
-  const target = resolveSshTarget(item)
-  const args: Array<string> = []
+const buildSshProbeArgs = (item: ProjectItem): SshSpec => {
+  const host = item.ipAddress ?? "localhost"
+  const port = item.ipAddress ? 22 : item.sshPort
   if (item.sshKeyPath === null) {
     return {
       command: "sshpass",
@@ -81,12 +75,13 @@ const buildSshProbeArgs = (item: ProjectItem): { readonly command: string; reado
         "-o", "LogLevel=ERROR",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
-        "-p", String(target.port),
-        `${item.sshUser}@${target.host}`,
+        "-p", String(port),
+        `${item.sshUser}@${host}`,
         "true"
       ]
     }
   }
+  const args: Array<string> = []
   args.push("-i", item.sshKeyPath)
   args.push(
     "-T",
@@ -103,8 +98,8 @@ const buildSshProbeArgs = (item: ProjectItem): { readonly command: string; reado
     "-o",
     "UserKnownHostsFile=/dev/null",
     "-p",
-    String(target.port),
-    `${item.sshUser}@${target.host}`,
+    String(port),
+    `${item.sshUser}@${host}`,
     "true"
   )
   return { command: "ssh", args }
@@ -113,8 +108,9 @@ const buildSshProbeArgs = (item: ProjectItem): { readonly command: string; reado
 const waitForSshReady = (
   item: ProjectItem
 ): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> => {
+  const host = item.ipAddress ?? "localhost"
+  const port = item.ipAddress ? 22 : item.sshPort
   const probeSpec = buildSshProbeArgs(item)
-  const target = resolveSshTarget(item)
   const probe = Effect.gen(function*(_) {
     const exitCode = yield* _(
       runCommandExitCode({
@@ -129,7 +125,7 @@ const waitForSshReady = (
   })
 
   return pipe(
-    Effect.log(`Waiting for SSH on ${target.host}:${target.port} ...`),
+    Effect.log(`Waiting for SSH on ${host}:${port} ...`),
     Effect.zipRight(
       Effect.retry(
         probe,
@@ -155,15 +151,16 @@ const waitForSshReady = (
 // COMPLEXITY: O(1)
 export const connectProjectSsh = (
   item: ProjectItem
-): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> =>
-  pipe(
+): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> => {
+  const sshSpec = buildSshArgs(item)
+  return pipe(
     ensureTerminalCursorVisible(),
     Effect.zipRight(
       runCommandWithExitCodes(
         {
           cwd: process.cwd(),
-          command: "ssh",
-          args: buildSshArgs(item)
+          command: sshSpec.command,
+          args: sshSpec.args
         },
         [0, 130],
         (exitCode) => new CommandFailedError({ command: "ssh", exitCode })
@@ -171,6 +168,7 @@ export const connectProjectSsh = (
     ),
     Effect.ensuring(ensureTerminalCursorVisible())
   )
+}
 
 // CHANGE: ensure docker compose is up before SSH connection
 // WHY: selected project should auto-start when not running
@@ -180,8 +178,6 @@ export const connectProjectSsh = (
 // FORMAT THEOREM: forall p: up(p) -> ssh(p)
 // PURITY: SHELL
 // EFFECT: Effect<void, CommandFailedError | DockerCommandError | PlatformError, CommandExecutor | FileSystem | Path>
-// INVARIANT: docker compose up runs before ssh
-// COMPLEXITY: O(1)
 export const connectProjectSshWithUp = (
   item: ProjectItem
 ): Effect.Effect<
@@ -193,15 +189,35 @@ export const connectProjectSshWithUp = (
   | PortProbeError
   | DockerCommandError
   | PlatformError,
-  CommandExecutor.CommandExecutor | Fs | PathService
+  CommandExecutor.CommandExecutor | FileSystem.FileSystem | Path.Path
 > =>
-  pipe(
-    Effect.log(`Starting docker compose for ${item.displayName} ...`),
-    Effect.zipRight(runDockerComposeUpWithPortCheck(item.projectDir)),
-    Effect.map((template) => ({ ...item, sshPort: template.sshPort })),
-    Effect.tap((updated) => waitForSshReady(updated)),
-    Effect.flatMap((updated) => connectProjectSsh(updated))
-  )
+  Effect.gen(function*(_) {
+    const fs = yield* _(FileSystem.FileSystem)
+    yield* _(Effect.log(`Starting docker compose for ${item.displayName} ...`))
+    const template = yield* _(runDockerComposeUpWithPortCheck(item.projectDir))
+
+    const isInsideContainer = yield* _(fs.exists("/.dockerenv"))
+    let ipAddress: string | undefined
+    if (isInsideContainer) {
+      const containerIp = yield* _(
+        runDockerInspectContainerIp(item.projectDir, template.containerName).pipe(
+          Effect.orElse(() => Effect.succeed(""))
+        )
+      )
+      if (containerIp.length > 0) {
+        ipAddress = containerIp
+      }
+    }
+
+    const updated: ProjectItem = {
+      ...item,
+      sshPort: template.sshPort,
+      ipAddress
+    }
+
+    yield* _(waitForSshReady(updated))
+    yield* _(connectProjectSsh(updated))
+  })
 
 // CHANGE: show docker compose status for all known docker-git projects
 // WHY: allow checking active containers without switching directories
@@ -216,29 +232,29 @@ export const connectProjectSshWithUp = (
 export const listProjectStatus: Effect.Effect<
   void,
   PlatformError,
-  Fs | PathService | CommandExecutor.CommandExecutor
-> = Effect.asVoid(
-  withProjectIndexAndSsh((index, sshKey) =>
-    forEachProjectStatus(index.configPaths, (status) =>
-      pipe(
-        Effect.log(renderProjectStatusHeader(status)),
-        Effect.zipRight(
-          Effect.log(`SSH access: ${buildSshCommand(status.config.template, sshKey)}`)
-        ),
-        Effect.zipRight(
-          runDockerComposePsFormatted(status.projectDir).pipe(
-            Effect.map((raw) => parseComposePsOutput(raw)),
-            Effect.map((rows) => formatComposeRows(rows)),
-            Effect.flatMap((text) => Effect.log(text)),
-            Effect.matchEffect({
-              onFailure: (error: DockerCommandError | PlatformError) =>
-                Effect.logWarning(
-                  `docker compose ps failed for ${status.projectDir}: ${renderError(error)}`
-                ),
-              onSuccess: () => Effect.void
-            })
-          )
-        )
-      ))
-  )
-)
+  FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+> = withProjectIndexAndSsh((index, sshKey) =>
+  forEachProjectStatus(index.configPaths, (status) =>
+    Effect.gen(function*(_) {
+      const fs = yield* _(FileSystem.FileSystem)
+      const ipAddress = yield* _(
+        getContainerIpIfInsideContainer(fs, status.projectDir, status.config.template.containerName)
+      )
+
+      yield* _(Effect.log(renderProjectStatusHeader(status)))
+      yield* _(Effect.log(`SSH access: ${buildSshCommand(status.config.template, sshKey, ipAddress)}`))
+
+      const raw = yield* _(runDockerComposePsFormatted(status.projectDir))
+      const rows = parseComposePsOutput(raw)
+      const text = formatComposeRows(rows)
+      yield* _(Effect.log(text))
+    }).pipe(
+      Effect.matchEffect({
+        onFailure: (error: DockerCommandError | PlatformError) =>
+          Effect.logWarning(
+            `docker compose ps failed for ${status.projectDir}: ${renderError(error)}`
+          ),
+        onSuccess: () => Effect.void
+      })
+    ))
+).pipe(Effect.asVoid)

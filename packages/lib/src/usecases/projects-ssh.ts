@@ -34,75 +34,53 @@ import { ensureTerminalCursorVisible } from "./terminal-cursor.js"
 // INVARIANT: sshKeyPath !== null → key auth; sshKeyPath === null → sshpass with default password
 type SshSpec = { readonly command: string; readonly args: ReadonlyArray<string> }
 
+const sshSecurityOptions: ReadonlyArray<string> = [
+  "-o",
+  "LogLevel=ERROR",
+  "-o",
+  "StrictHostKeyChecking=no",
+  "-o",
+  "UserKnownHostsFile=/dev/null"
+]
+
+const sshProbeTimeouts: ReadonlyArray<string> = [
+  "-o",
+  "ConnectTimeout=2",
+  "-o",
+  "ConnectionAttempts=1"
+]
+
+const resolveSshTarget = (item: ProjectItem): { host: string; port: number } => ({
+  host: item.ipAddress ?? "localhost",
+  port: item.ipAddress ? 22 : item.sshPort
+})
+
+const wrapWithSshpass = (item: ProjectItem, args: ReadonlyArray<string>): SshSpec =>
+  item.sshKeyPath === null
+    ? { command: "sshpass", args: ["-p", item.sshUser, "ssh", ...args] }
+    : { command: "ssh", args }
+
 const buildSshArgs = (item: ProjectItem): SshSpec => {
-  const host = item.ipAddress ?? "localhost"
-  const port = item.ipAddress ? 22 : item.sshPort
-  const args: Array<string> = []
-  if (item.sshKeyPath !== null) {
-    args.push("-i", item.sshKeyPath)
-  }
-  args.push(
-    "-tt",
-    "-Y",
-    "-o",
-    "LogLevel=ERROR",
-    "-o",
-    "StrictHostKeyChecking=no",
-    "-o",
-    "UserKnownHostsFile=/dev/null",
-    "-p",
-    String(port),
-    `${item.sshUser}@${host}`
-  )
-  if (item.sshKeyPath === null) {
-    return { command: "sshpass", args: ["-p", item.sshUser, "ssh", ...args] }
-  }
-  return { command: "ssh", args }
+  const { host, port } = resolveSshTarget(item)
+  const keyArgs = item.sshKeyPath === null ? [] : ["-i", item.sshKeyPath]
+  const args = [...keyArgs, "-tt", "-Y", ...sshSecurityOptions, "-p", String(port), `${item.sshUser}@${host}`]
+  return wrapWithSshpass(item, args)
 }
 
 const buildSshProbeArgs = (item: ProjectItem): SshSpec => {
-  const host = item.ipAddress ?? "localhost"
-  const port = item.ipAddress ? 22 : item.sshPort
-  if (item.sshKeyPath === null) {
-    return {
-      command: "sshpass",
-      args: [
-        "-p", item.sshUser,
-        "ssh",
-        "-T",
-        "-o", "ConnectTimeout=2",
-        "-o", "ConnectionAttempts=1",
-        "-o", "LogLevel=ERROR",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-p", String(port),
-        `${item.sshUser}@${host}`,
-        "true"
-      ]
-    }
-  }
-  const args: Array<string> = []
-  args.push("-i", item.sshKeyPath)
-  args.push(
+  const { host, port } = resolveSshTarget(item)
+  const authArgs = item.sshKeyPath === null ? [] : ["-i", item.sshKeyPath, "-o", "BatchMode=yes"]
+  const args = [
+    ...authArgs,
     "-T",
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "ConnectTimeout=2",
-    "-o",
-    "ConnectionAttempts=1",
-    "-o",
-    "LogLevel=ERROR",
-    "-o",
-    "StrictHostKeyChecking=no",
-    "-o",
-    "UserKnownHostsFile=/dev/null",
+    ...sshProbeTimeouts,
+    ...sshSecurityOptions,
     "-p",
     String(port),
     `${item.sshUser}@${host}`,
     "true"
-  )
-  return { command: "ssh", args }
+  ]
+  return wrapWithSshpass(item, args)
 }
 
 const waitForSshReady = (

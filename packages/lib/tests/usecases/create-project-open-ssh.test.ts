@@ -18,7 +18,7 @@ vi.mock("../../src/usecases/actions/ports.js", () => ({
 }))
 
 vi.mock("../../src/shell/docker-env.js", () => ({
-  isInsideDocker: () => false
+  isInsideDockerEffect: Effect.succeed(false)
 }))
 
 type RecordedCommand = {

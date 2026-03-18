@@ -240,12 +240,46 @@ export const listTmuxPanes = (
     }
   })
 
+// CHANGE: shared session attach logic extracted to avoid code duplication
+// WHY: attachTmux and attachTmuxFromProject share identical session management;
+//      duplicate code triggers vibecode-linter DUPLICATE detection
+// PURITY: SHELL
+// EFFECT: Effect<void, CommandFailedError | PlatformError, CommandExecutor>
+// INVARIANT: tmux session name is deterministic; old layout is recreated
+// COMPLEXITY: O(1)
+type TmuxSessionParams = {
+  readonly session: string
+  readonly repoDisplayName: string
+  readonly statusRight: string
+  readonly sshCommand: string
+  readonly containerName: string
+}
+
+const attachOrRecreateSession = (
+  params: TmuxSessionParams
+): Effect.Effect<void, CommandFailedError | PlatformError, CommandExecutor.CommandExecutor> =>
+  Effect.gen(function*(_) {
+    const hasSessionCode = yield* _(runTmuxExitCode(["has-session", "-t", params.session]))
+
+    if (hasSessionCode === 0) {
+      const existingLayout = yield* _(readLayoutVersion(params.session))
+      if (existingLayout === layoutVersion) {
+        yield* _(runTmux(["attach", "-t", params.session]))
+        return
+      }
+      yield* _(Effect.logWarning(`tmux session ${params.session} uses an old layout; recreating.`))
+      yield* _(runTmux(["kill-session", "-t", params.session]))
+    }
+
+    yield* _(createLayout(params.session))
+    yield* _(configureSession(params.session, params.repoDisplayName, params.statusRight))
+    yield* _(setupPanes(params.session, params.sshCommand, params.containerName))
+    yield* _(runTmux(["attach", "-t", params.session]))
+  })
+
 // CHANGE: attach a tmux workspace for a docker-git project
 // WHY: provide multi-pane terminal layout for sandbox work
 // QUOTE(ТЗ): "окей Давай подключим tmux"
-// REF: user-request-2026-02-02-tmux
-// SOURCE: n/a
-// FORMAT THEOREM: forall p: attach(p) -> tmux(p)
 // PURITY: SHELL
 // EFFECT: Effect<void, CommandFailedError | DockerCommandError | ConfigNotFoundError | ConfigDecodeError | FileExistsError | PortProbeError | PlatformError, CommandExecutor | FileSystem | Path>
 // INVARIANT: tmux session name is deterministic from repo url
@@ -270,25 +304,14 @@ export const attachTmux = (
     const sshCommand = buildSshCommand(template, sshKey)
     const repoDisplayName = formatRepoDisplayName(template.repoUrl)
     const refLabel = formatRepoRefLabel(template.repoRef)
-    const statusRight =
-      `SSH: ${template.sshUser}@localhost:${template.sshPort} | Repo: ${repoDisplayName} | Ref: ${refLabel} | Status: Running`
-    const session = `dg-${deriveRepoSlug(template.repoUrl)}`
-    const hasSessionCode = yield* _(runTmuxExitCode(["has-session", "-t", session]))
-
-    if (hasSessionCode === 0) {
-      const existingLayout = yield* _(readLayoutVersion(session))
-      if (existingLayout === layoutVersion) {
-        yield* _(runTmux(["attach", "-t", session]))
-        return
-      }
-      yield* _(Effect.logWarning(`tmux session ${session} uses an old layout; recreating.`))
-      yield* _(runTmux(["kill-session", "-t", session]))
-    }
-
-    yield* _(createLayout(session))
-    yield* _(configureSession(session, repoDisplayName, statusRight))
-    yield* _(setupPanes(session, sshCommand, template.containerName))
-    yield* _(runTmux(["attach", "-t", session]))
+    yield* _(attachOrRecreateSession({
+      session: `dg-${deriveRepoSlug(template.repoUrl)}`,
+      repoDisplayName,
+      statusRight:
+        `SSH: ${template.sshUser}@localhost:${template.sshPort} | Repo: ${repoDisplayName} | Ref: ${refLabel} | Status: Running`,
+      sshCommand,
+      containerName: template.containerName
+    }))
   })
 
 // CHANGE: attach tmux from API project details without local filesystem access
@@ -317,23 +340,12 @@ export const attachTmuxFromProject = (
   Effect.gen(function*(_) {
     const repoDisplayName = formatRepoDisplayName(project.repoUrl)
     const refLabel = formatRepoRefLabel(project.repoRef)
-    const statusRight =
-      `SSH: ${project.sshUser}@localhost:${project.sshPort} | Repo: ${repoDisplayName} | Ref: ${refLabel} | Status: Running`
-    const session = `dg-${deriveRepoSlug(project.repoUrl)}`
-    const hasSessionCode = yield* _(runTmuxExitCode(["has-session", "-t", session]))
-
-    if (hasSessionCode === 0) {
-      const existingLayout = yield* _(readLayoutVersion(session))
-      if (existingLayout === layoutVersion) {
-        yield* _(runTmux(["attach", "-t", session]))
-        return
-      }
-      yield* _(Effect.logWarning(`tmux session ${session} uses an old layout; recreating.`))
-      yield* _(runTmux(["kill-session", "-t", session]))
-    }
-
-    yield* _(createLayout(session))
-    yield* _(configureSession(session, repoDisplayName, statusRight))
-    yield* _(setupPanes(session, project.sshCommand, project.containerName))
-    yield* _(runTmux(["attach", "-t", session]))
+    yield* _(attachOrRecreateSession({
+      session: `dg-${deriveRepoSlug(project.repoUrl)}`,
+      repoDisplayName,
+      statusRight:
+        `SSH: ${project.sshUser}@localhost:${project.sshPort} | Repo: ${repoDisplayName} | Ref: ${refLabel} | Status: Running`,
+      sshCommand: project.sshCommand,
+      containerName: project.containerName
+    }))
   })

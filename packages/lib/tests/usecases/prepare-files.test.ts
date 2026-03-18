@@ -23,6 +23,36 @@ const withTempDir = <A, E, R>(
     })
   )
 
+const withPatchedEnv = <A, E, R>(
+  patch: Readonly<Record<string, string | undefined>>,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E, R> =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const previous = new Map<string, string | undefined>()
+      for (const [key, value] of Object.entries(patch)) {
+        previous.set(key, process.env[key])
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+      return previous
+    }),
+    () => effect,
+    (previous) =>
+      Effect.sync(() => {
+        for (const [key, value] of previous.entries()) {
+          if (value === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = value
+          }
+        }
+      })
+  )
+
 const makeGlobalConfig = (root: string, path: Path.Path): TemplateConfig => ({
   containerName: "dg-test",
   serviceName: "dg-test",
@@ -207,6 +237,52 @@ describe("prepareProjectFiles", () => {
         expect(compose).toContain("dg-test-net")
         expect(compose).toContain("driver: bridge")
         expect(compose).not.toContain("external: true")
+      })
+    ).pipe(Effect.provide(NodeContext.layer)))
+
+  it.effect("appends the active public key to the managed authorized_keys file", () =>
+    withTempDir((root) =>
+      Effect.gen(function*(_) {
+        const fs = yield* _(FileSystem.FileSystem)
+        const path = yield* _(Path.Path)
+        const homeDir = path.join(root, "home")
+        const projectsRoot = path.join(homeDir, ".docker-git")
+        const outDir = path.join(projectsRoot, "org", "repo")
+        const authorizedKeysPath = path.join(projectsRoot, "authorized_keys")
+        const sshPrivateKeyPath = path.join(homeDir, ".ssh", "id_ed25519")
+        const sshPublicKeyPath = `${sshPrivateKeyPath}.pub`
+        const staleKey = "ssh-ed25519 AAAA-stale stale@example\n"
+        const currentKey = "ssh-ed25519 AAAA-current current@example\n"
+        const globalConfig = makeGlobalConfig(projectsRoot, path)
+        const projectConfig = {
+          ...makeProjectConfig(outDir, false, path),
+          authorizedKeysPath: "../../authorized_keys"
+        }
+
+        yield* _(fs.makeDirectory(path.dirname(authorizedKeysPath), { recursive: true }))
+        yield* _(fs.makeDirectory(path.dirname(sshPrivateKeyPath), { recursive: true }))
+        yield* _(fs.writeFileString(authorizedKeysPath, staleKey))
+        yield* _(fs.writeFileString(sshPrivateKeyPath, "PRIVATE\n"))
+        yield* _(fs.writeFileString(sshPublicKeyPath, currentKey))
+
+        yield* _(
+          withPatchedEnv(
+            {
+              HOME: homeDir,
+              DOCKER_GIT_PROJECTS_ROOT: projectsRoot,
+              DOCKER_GIT_AUTHORIZED_KEYS: undefined,
+              DOCKER_GIT_SSH_KEY: undefined
+            },
+            prepareProjectFiles(outDir, projectsRoot, globalConfig, projectConfig, {
+              force: false,
+              forceEnv: false
+            })
+          )
+        )
+
+        const synchronizedAuthorizedKeys = yield* _(fs.readFileString(authorizedKeysPath))
+        expect(synchronizedAuthorizedKeys).toContain(staleKey.trim())
+        expect(synchronizedAuthorizedKeys).toContain(currentKey.trim())
       })
     ).pipe(Effect.provide(NodeContext.layer)))
 })

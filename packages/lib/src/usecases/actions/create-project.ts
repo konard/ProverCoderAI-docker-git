@@ -263,6 +263,14 @@ const runCreateProject = (
     const hasAgent = finalConfig.agentMode !== undefined
     const waitForAgent = hasAgent && (finalConfig.agentAuto ?? false)
 
+    // CHANGE: run state sync before docker compose up
+    // WHY: autoSyncState does git-reset-hard which replaces directory inodes;
+    //      running it after docker-up invalidates bind mounts (e.g. .orch/auth/codex → /home/dev/.codex)
+    //      causing "Error loading configuration: No such file or directory" inside the container.
+    // REF: issue-158
+    // INVARIANT: bind mount source directories must be stable before container start
+    yield* _(autoSyncState(`chore(state): update ${formatStateSyncLabel(projectConfig.repoUrl)}`))
+
     yield* _(
       runDockerUpIfNeeded(resolvedOutDir, projectConfig, {
         runUp: command.runUp,
@@ -278,7 +286,6 @@ const runCreateProject = (
 
     yield* _(maybeCleanupAfterAgent(waitForAgent, resolvedOutDir))
 
-    yield* _(autoSyncState(`chore(state): update ${formatStateSyncLabel(projectConfig.repoUrl)}`))
     yield* _(maybeOpenSsh(command, hasAgent, waitForAgent, projectConfig))
   }).pipe(Effect.asVoid)
 

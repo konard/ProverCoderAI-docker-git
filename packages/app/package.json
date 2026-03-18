@@ -78,7 +78,7 @@
   },
   "devDependencies": {
     "@effect-template/lib": "workspace:*",
-    "@biomejs/biome": "^2.4.7",
+    "@biomejs/biome": "^2.4.8",
     "@effect/eslint-plugin": "^0.3.2",
     "@effect/language-service": "latest",
     "@effect/vitest": "^0.28.0",
@@ -103,7 +103,7 @@
     "eslint-plugin-unicorn": "^63.0.0",
     "@vitest/eslint-plugin": "^1.6.12",
     "@types/react": "^19.2.14",
-    "biome": "npm:@biomejs/biome@^2.4.7",
+    "biome": "npm:@biomejs/biome@^2.4.8",
     "globals": "^17.4.0",
     "jscpd": "^4.0.8",
     "typescript": "^5.9.3",

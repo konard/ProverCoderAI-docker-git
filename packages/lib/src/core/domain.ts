@@ -1,3 +1,5 @@
+import type { SessionGistCommand } from "./session-gist-domain.js"
+
 export type { MenuAction, ParseError } from "./menu.js"
 export { parseMenuSelection } from "./menu.js"
 export { deriveRepoPathParts, deriveRepoSlug, resolveRepoInput } from "./repo.js"
@@ -271,10 +273,18 @@ export interface AuthGeminiLogoutCommand {
   readonly geminiAuthPath: string
 }
 
+export type {
+  SessionGistBackupCommand,
+  SessionGistCommand,
+  SessionGistDownloadCommand,
+  SessionGistListCommand,
+  SessionGistViewCommand
+} from "./session-gist-domain.js"
 export type SessionsCommand =
   | SessionsListCommand
   | SessionsKillCommand
   | SessionsLogsCommand
+  | SessionGistCommand
 
 export type ScrapCommand =
   | ScrapExportCommand

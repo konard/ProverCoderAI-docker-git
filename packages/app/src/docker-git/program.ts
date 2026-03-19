@@ -22,6 +22,12 @@ import { mcpPlaywrightUp } from "@effect-template/lib/usecases/mcp-playwright"
 import { downAllDockerGitProjects, listProjectStatus } from "@effect-template/lib/usecases/projects"
 import { exportScrap, importScrap } from "@effect-template/lib/usecases/scrap"
 import {
+  sessionGistBackup,
+  sessionGistDownload,
+  sessionGistList,
+  sessionGistView
+} from "@effect-template/lib/usecases/session-gists"
+import {
   stateCommit,
   stateInit,
   statePath,
@@ -110,6 +116,10 @@ const handleNonBaseCommand = (command: NonBaseCommand) =>
       Match.when({ _tag: "ScrapExport" }, (cmd) => exportScrap(cmd)),
       Match.when({ _tag: "ScrapImport" }, (cmd) => importScrap(cmd)),
       Match.when({ _tag: "McpPlaywrightUp" }, (cmd) => mcpPlaywrightUp(cmd)),
+      Match.when({ _tag: "SessionGistBackup" }, (cmd) => sessionGistBackup(cmd)),
+      Match.when({ _tag: "SessionGistList" }, (cmd) => sessionGistList(cmd)),
+      Match.when({ _tag: "SessionGistView" }, (cmd) => sessionGistView(cmd)),
+      Match.when({ _tag: "SessionGistDownload" }, (cmd) => sessionGistDownload(cmd)),
       Match.exhaustive
     )
 

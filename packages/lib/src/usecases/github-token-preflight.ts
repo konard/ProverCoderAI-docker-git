@@ -1,18 +1,19 @@
-import { FetchHttpClient, HttpClient } from "@effect/platform"
 import type { PlatformError } from "@effect/platform/Error"
 import * as FileSystem from "@effect/platform/FileSystem"
-import { Effect } from "effect"
+import { Effect, Match } from "effect"
 
 import type { TemplateConfig } from "../core/domain.js"
 import { parseGithubRepoUrl } from "../core/repo.js"
 import { normalizeGitTokenLabel } from "../core/token-labels.js"
 import { AuthError } from "../shell/errors.js"
 import { findEnvValue, readEnvText } from "./env-file.js"
+import {
+  githubInvalidTokenMessage,
+  githubTokenValidationWarning,
+  validateGithubToken
+} from "./github-token-validation.js"
 
-const githubTokenValidationUrl = "https://api.github.com/user"
-const githubTokenValidationWarning = "Unable to validate GitHub token before start; continuing."
-export const githubInvalidTokenMessage =
-  "GitHub token is invalid. Register GitHub again: docker-git auth github login --web"
+export { githubInvalidTokenMessage } from "./github-token-validation.js"
 
 const defaultGithubTokenKeys: ReadonlyArray<string> = [
   "GIT_AUTH_TOKEN",
@@ -75,37 +76,6 @@ export const resolveGithubCloneAuthToken = (
   return findFirstEnvValue(envText, defaultGithubTokenKeys)
 }
 
-type GithubTokenValidationStatus = "valid" | "invalid" | "unknown"
-
-const unknownGithubTokenValidationStatus = (): GithubTokenValidationStatus => "unknown"
-
-const mapGithubTokenValidationStatus = (status: number): GithubTokenValidationStatus => {
-  if (status === 401) {
-    return "invalid"
-  }
-  return status >= 200 && status < 300 ? "valid" : "unknown"
-}
-
-const validateGithubTokenStatus = (token: string): Effect.Effect<GithubTokenValidationStatus> =>
-  Effect.gen(function*(_) {
-    const client = yield* _(HttpClient.HttpClient)
-    const response = yield* _(
-      client.get(githubTokenValidationUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json"
-        }
-      })
-    )
-    return mapGithubTokenValidationStatus(response.status)
-  }).pipe(
-    Effect.provide(FetchHttpClient.layer),
-    Effect.match({
-      onFailure: unknownGithubTokenValidationStatus,
-      onSuccess: (status) => status
-    })
-  )
-
 // CHANGE: validate GitHub auth token before clone/create starts mutating the project
 // WHY: dead tokens make git clone fail later with a misleading branch/auth error inside the container
 // QUOTE(ТЗ): "Если токен мёртв то пусть пишет что надо зарегистрировать github используй docker-git auth github login --web"
@@ -128,11 +98,13 @@ export const validateGithubCloneAuthTokenPreflight = (
       return
     }
 
-    const status = yield* _(validateGithubTokenStatus(token))
-    if (status === "invalid") {
-      return yield* _(Effect.fail(new AuthError({ message: githubInvalidTokenMessage })))
-    }
-    if (status === "unknown") {
-      yield* _(Effect.logWarning(githubTokenValidationWarning))
-    }
+    const validation = yield* _(validateGithubToken(token))
+    yield* _(
+      Match.value(validation.status).pipe(
+        Match.when("valid", () => Effect.void),
+        Match.when("invalid", () => Effect.fail(new AuthError({ message: githubInvalidTokenMessage }))),
+        Match.when("unknown", () => Effect.logWarning(githubTokenValidationWarning)),
+        Match.exhaustive
+      )
+    )
   })

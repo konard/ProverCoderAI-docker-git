@@ -14,6 +14,9 @@ const renderGitignore = (): string =>
 # NOTE: this directory is intended to be committed to the docker-git state repository.
 # It intentionally does not ignore .orch/ or auth files; keep the state repo private.
 
+# docker-git scripts (copied from workspace, rebuilt on each project update)
+scripts/
+
 # Volatile Codex artifacts (do not commit)
 .orch/auth/codex/log/
 .orch/auth/codex/tmp/

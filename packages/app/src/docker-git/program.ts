@@ -19,7 +19,7 @@ import {
 import type { AppError } from "@effect-template/lib/usecases/errors"
 import { renderError } from "@effect-template/lib/usecases/errors"
 import { mcpPlaywrightUp } from "@effect-template/lib/usecases/mcp-playwright"
-import { downAllDockerGitProjects, listProjectStatus } from "@effect-template/lib/usecases/projects"
+import { applyAllDockerGitProjects, downAllDockerGitProjects, listProjectStatus } from "@effect-template/lib/usecases/projects"
 import { exportScrap, importScrap } from "@effect-template/lib/usecases/scrap"
 import {
   sessionGistBackup,
@@ -80,6 +80,7 @@ type NonBaseCommand = Exclude<
   | { readonly _tag: "Create" }
   | { readonly _tag: "Status" }
   | { readonly _tag: "DownAll" }
+  | { readonly _tag: "ApplyAll" }
   | { readonly _tag: "Menu" }
 >
 
@@ -141,6 +142,7 @@ export const program = pipe(
       Match.when({ _tag: "Create" }, (create) => createProject(create)),
       Match.when({ _tag: "Status" }, () => listProjectStatus),
       Match.when({ _tag: "DownAll" }, () => downAllDockerGitProjects),
+      Match.when({ _tag: "ApplyAll" }, () => applyAllDockerGitProjects),
       Match.when({ _tag: "Menu" }, () => runMenu),
       Match.orElse((cmd) => handleNonBaseCommand(cmd))
     )

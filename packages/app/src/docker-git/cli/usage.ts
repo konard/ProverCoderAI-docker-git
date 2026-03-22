@@ -19,6 +19,7 @@ docker-git session-gists backup [<url>] [options]
 docker-git session-gists view <snapshot-ref>
 docker-git session-gists download <snapshot-ref> [options]
 docker-git ps
+docker-git apply-all
 docker-git down-all
 docker-git auth <provider> <action> [options]
 docker-git state <action> [options]
@@ -36,6 +37,7 @@ Commands:
   sessions            List/kill/log container terminal processes
   session-gists       Manage AI session backups via a private session repository (backup/list/view/download)
   ps, status          Show docker compose status for all docker-git projects
+  apply-all           Apply docker-git config and refresh all containers (docker compose up)
   down-all            Stop all docker-git containers (docker compose down)
   auth                Manage GitHub/Codex/Claude Code auth for docker-git
   state               Manage docker-git state directory via git (sync across machines)

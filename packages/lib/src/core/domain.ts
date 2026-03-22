@@ -144,6 +144,18 @@ export interface ApplyCommand {
   readonly enableMcpPlaywright?: boolean | undefined
 }
 
+// CHANGE: add apply-all command to apply docker-git config to every known project
+// WHY: allow bulk-updating all containers in one command instead of running apply for each project manually
+// QUOTE(ТЗ): "Сделать команду которая сама на все контейнеры применит новые настройки"
+// REF: issue-164
+// PURITY: CORE
+// EFFECT: n/a
+// INVARIANT: applies to all discovered projects; individual failures do not abort the batch
+// COMPLEXITY: O(1)
+export interface ApplyAllCommand {
+  readonly _tag: "ApplyAll"
+}
+
 export interface HelpCommand {
   readonly _tag: "Help"
   readonly message: string
@@ -322,6 +334,7 @@ export type Command =
   | ScrapCommand
   | McpPlaywrightUpCommand
   | ApplyCommand
+  | ApplyAllCommand
   | HelpCommand
   | StatusCommand
   | DownAllCommand

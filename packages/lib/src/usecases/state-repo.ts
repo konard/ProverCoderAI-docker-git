@@ -7,7 +7,14 @@ import { runCommandExitCode } from "../shell/command-runner.js"
 import { CommandFailedError } from "../shell/errors.js"
 import { defaultProjectsRoot } from "./menu-helpers.js"
 import { adoptRemoteHistoryIfOrphan } from "./state-repo/adopt-remote.js"
-import { autoSyncEnvKey, autoSyncStrictEnvKey, isAutoSyncEnabled, isTruthyEnv } from "./state-repo/env.js"
+import {
+  autoPullEnvKey,
+  autoSyncEnvKey,
+  autoSyncStrictEnvKey,
+  isAutoPullEnabled,
+  isAutoSyncEnabled,
+  isTruthyEnv
+} from "./state-repo/env.js"
 import {
   git,
   gitBaseEnv,
@@ -133,6 +140,58 @@ export const autoSyncState = (message: string): Effect.Effect<void, never, State
     }),
     Effect.asVoid
   )
+
+// CHANGE: add autoPullState to perform git pull on .docker-git at startup
+// WHY: ensure local .docker-git state is up-to-date every time the docker-git command runs
+// QUOTE(ТЗ): "Сделать что бы когда вызывается команда docker-git то происходит git pull для .docker-git папки"
+// REF: issue-178
+// PURITY: SHELL
+// EFFECT: Effect<void, never, StateRepoEnv>
+// INVARIANT: never fails — errors are logged as warnings; does not block CLI execution
+// COMPLEXITY: O(1) network round-trip
+export const autoPullState: Effect.Effect<void, never, StateRepoEnv> = Effect.gen(function*(_) {
+  const path = yield* _(Path.Path)
+  const root = resolveStateRoot(path, process.cwd())
+  const repoOk = yield* _(isGitRepo(root))
+  if (!repoOk) {
+    return
+  }
+  const originOk = yield* _(hasOriginRemote(root))
+  const enabled = isAutoPullEnabled(process.env[autoPullEnvKey], originOk)
+  if (!enabled) {
+    return
+  }
+  yield* _(statePullInternal(root))
+}).pipe(
+  Effect.matchEffect({
+    onFailure: (error) => Effect.logWarning(`State auto-pull failed: ${String(error)}`),
+    onSuccess: () => Effect.void
+  }),
+  Effect.asVoid
+)
+
+// Internal pull that takes an already-resolved root, reusing auth logic from pull-push.
+const statePullInternal = (
+  root: string
+): Effect.Effect<void, CommandFailedError | PlatformError, StateRepoEnv> =>
+  Effect.gen(function*(_) {
+    const fs = yield* _(FileSystem.FileSystem)
+    const path = yield* _(Path.Path)
+    const originUrlExit = yield* _(gitExitCode(root, ["remote", "get-url", "origin"], gitBaseEnv))
+    if (originUrlExit !== successExitCode) {
+      yield* _(git(root, ["pull", "--rebase"], gitBaseEnv))
+      return
+    }
+    const rawOriginUrl = yield* _(
+      gitCapture(root, ["remote", "get-url", "origin"], gitBaseEnv).pipe(Effect.map((value) => value.trim()))
+    )
+    const originUrl = yield* _(normalizeOriginUrlIfNeeded(root, rawOriginUrl))
+    const token = yield* _(resolveGithubToken(fs, path, root))
+    const effect = token && token.length > 0 && isGithubHttpsRemote(originUrl)
+      ? withGithubAskpassEnv(token, (env) => git(root, ["pull", "--rebase"], env))
+      : git(root, ["pull", "--rebase"], gitBaseEnv)
+    yield* _(effect)
+  }).pipe(Effect.asVoid)
 
 type StateInitInput = {
   readonly repoUrl: string

@@ -187,9 +187,21 @@ const statePullInternal = (
     )
     const originUrl = yield* _(normalizeOriginUrlIfNeeded(root, rawOriginUrl))
     const token = yield* _(resolveGithubToken(fs, path, root))
+    // CHANGE: resolve current branch and pass origin <branch> explicitly
+    // WHY: bare `git pull --rebase` can fail or pull the wrong branch in some git configurations
+    // QUOTE(ТЗ): "Сделай что бы правильные параметры передавались"
+    // REF: issue-181
+    // PURITY: SHELL
+    const branchRaw = yield* _(
+      gitCapture(root, ["rev-parse", "--abbrev-ref", "HEAD"], gitBaseEnv).pipe(
+        Effect.map((value) => value.trim()),
+        Effect.catchAll(() => Effect.succeed("main"))
+      )
+    )
+    const branch = branchRaw === "HEAD" ? "main" : branchRaw
     const effect = token && token.length > 0 && isGithubHttpsRemote(originUrl)
-      ? withGithubAskpassEnv(token, (env) => git(root, ["pull", "--rebase"], env))
-      : git(root, ["pull", "--rebase"], gitBaseEnv)
+      ? withGithubAskpassEnv(token, (env) => git(root, ["pull", "--rebase", "origin", branch], env))
+      : git(root, ["pull", "--rebase", "origin", branch], gitBaseEnv)
     yield* _(effect)
   }).pipe(Effect.asVoid)
 

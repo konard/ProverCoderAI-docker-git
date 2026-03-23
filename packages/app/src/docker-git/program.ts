@@ -148,7 +148,7 @@ export const program = pipe(
       Match.when({ _tag: "Create" }, (create) => createProject(create)),
       Match.when({ _tag: "Status" }, () => listProjectStatus),
       Match.when({ _tag: "DownAll" }, () => downAllDockerGitProjects),
-      Match.when({ _tag: "ApplyAll" }, () => applyAllDockerGitProjects),
+      Match.when({ _tag: "ApplyAll" }, (cmd) => applyAllDockerGitProjects(cmd)),
       Match.when({ _tag: "Menu" }, () => runMenu),
       Match.orElse((cmd) => handleNonBaseCommand(cmd))
     )

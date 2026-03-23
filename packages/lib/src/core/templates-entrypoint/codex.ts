@@ -1,4 +1,5 @@
 import type { TemplateConfig } from "../domain.js"
+
 export { renderEntrypointCodexResumeHint } from "./codex-resume-hint.js"
 
 export const renderEntrypointCodexHome = (config: TemplateConfig): string =>

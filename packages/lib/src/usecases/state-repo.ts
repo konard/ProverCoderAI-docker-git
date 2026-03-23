@@ -161,7 +161,15 @@ export const autoPullState: Effect.Effect<void, never, StateRepoEnv> = Effect.ge
   if (!enabled) {
     return
   }
-  yield* _(statePullInternal(root))
+  // CHANGE: abort any in-progress rebase if pull fails to prevent conflict markers
+  // WHY: if git pull --rebase fails (e.g. due to merge commits), git leaves the repo
+  //      in a conflicted state with conflict markers; rebase --abort restores clean state
+  // PURITY: SHELL
+  yield* _(
+    statePullInternal(root).pipe(
+      Effect.tapError(() => git(root, ["rebase", "--abort"], gitBaseEnv).pipe(Effect.orElse(() => Effect.void)))
+    )
+  )
 }).pipe(
   Effect.matchEffect({
     onFailure: (error) => Effect.logWarning(`State auto-pull failed: ${String(error)}`),
@@ -195,7 +203,7 @@ const statePullInternal = (
     const branchRaw = yield* _(
       gitCapture(root, ["rev-parse", "--abbrev-ref", "HEAD"], gitBaseEnv).pipe(
         Effect.map((value) => value.trim()),
-        Effect.catchAll(() => Effect.succeed("main"))
+        Effect.orElse(() => Effect.succeed("main"))
       )
     )
     const branch = branchRaw === "HEAD" ? "main" : branchRaw

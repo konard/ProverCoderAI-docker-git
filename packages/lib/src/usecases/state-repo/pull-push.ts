@@ -34,7 +34,7 @@ export const statePull: Effect.Effect<
     pipe(
       gitCapture(root, ["rev-parse", "--abbrev-ref", "HEAD"], gitBaseEnv),
       Effect.map((value) => value.trim()),
-      Effect.catchAll(() => Effect.succeed("main"))
+      Effect.orElse(() => Effect.succeed("main"))
     )
   )
   const branch = branchRaw === "HEAD" ? "main" : branchRaw

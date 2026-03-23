@@ -65,8 +65,6 @@ else
     cat <<'EOF' > "$CODEX_CONFIG_FILE"
 # docker-git codex config
 model = "gpt-5.4"
-model_context_window = 1050000
-model_auto_compact_token_limit = 945000
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
 personality = "pragmatic"
@@ -80,6 +78,13 @@ shell_snapshot = true
 multi_agent = true
 apps = true
 shell_tool = true
+
+[profiles.longcontx]
+model = "gpt-5.4"
+model_context_window = 1050000
+model_auto_compact_token_limit = 945000
+model_reasoning_effort = "xhigh"
+plan_mode_reasoning_effort = "xhigh"
 EOF
     chown 1000:1000 "$CODEX_CONFIG_FILE" || true
   fi

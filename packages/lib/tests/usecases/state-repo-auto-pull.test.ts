@@ -244,18 +244,21 @@ describe("autoPullState", () => {
         yield* _(captureGit(["commit", "-m", "new commit"], pusherDir))
         yield* _(captureGit(["push", "origin", "HEAD:refs/heads/main"], pusherDir))
 
-        // Disable auto-pull
+        // Disable auto-pull via env var and restore after
         const prevAutoPull = process.env["DOCKER_GIT_STATE_AUTO_PULL"]
         process.env["DOCKER_GIT_STATE_AUTO_PULL"] = "false"
-        try {
-          yield* _(autoPullState)
-        } finally {
-          if (prevAutoPull === undefined) {
-            delete process.env["DOCKER_GIT_STATE_AUTO_PULL"]
-          } else {
-            process.env["DOCKER_GIT_STATE_AUTO_PULL"] = prevAutoPull
-          }
-        }
+        yield* _(
+          Effect.ensuring(
+            autoPullState,
+            Effect.sync(() => {
+              if (prevAutoPull === undefined) {
+                delete process.env["DOCKER_GIT_STATE_AUTO_PULL"]
+              } else {
+                process.env["DOCKER_GIT_STATE_AUTO_PULL"] = prevAutoPull
+              }
+            })
+          )
+        )
 
         // HEAD should NOT have changed because auto-pull was disabled
         const headAfter = yield* _(captureGit(["rev-parse", "HEAD"], stateRoot))

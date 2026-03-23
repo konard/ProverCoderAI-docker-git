@@ -277,7 +277,7 @@ export const formatComposeRows = (entries: ReadonlyArray<ComposePsRow>): string 
   return [header, ...lines].join("\n")
 }
 
-type ProjectIndex = {
+export type ProjectIndex = {
   readonly projectsRoot: string
   readonly configPaths: ReadonlyArray<string>
 }

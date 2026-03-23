@@ -9,6 +9,10 @@ services:
       CODEX_HOME: "/home/dev/.codex"
     ports:
       - "127.0.0.1:2222:22"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     volumes:
       - dev_home:/home/dev
       - ./authorized_keys:/authorized_keys:ro

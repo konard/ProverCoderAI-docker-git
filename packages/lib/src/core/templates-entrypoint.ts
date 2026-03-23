@@ -11,6 +11,7 @@ import {
   renderEntrypointZshShell,
   renderEntrypointZshUserRc
 } from "./templates-entrypoint/base.js"
+import { renderEntrypointDnsRepair } from "./templates-entrypoint/dns-repair.js"
 import { renderEntrypointClaudeConfig } from "./templates-entrypoint/claude.js"
 import {
   renderEntrypointAgentsNotice,
@@ -34,6 +35,7 @@ import {
 export const renderEntrypoint = (config: TemplateConfig): string =>
   [
     renderEntrypointHeader(config),
+    renderEntrypointDnsRepair(),
     renderEntrypointPackageCache(config),
     renderEntrypointAuthorizedKeys(config),
     renderEntrypointCodexHome(config),

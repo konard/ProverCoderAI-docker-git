@@ -11,6 +11,7 @@ import { ensureDockerDaemonAccess } from "../../shell/docker.js"
 import { CommandFailedError } from "../../shell/errors.js"
 import type {
   AgentFailedError,
+  AuthError,
   CloneFailedError,
   DockerAccessError,
   DockerCommandError,
@@ -21,6 +22,7 @@ import { logDockerAccessInfo } from "../access-log.js"
 import { resolveAutoAgentMode } from "../agent-auto-select.js"
 import { renderError } from "../errors.js"
 import { applyGithubForkConfig } from "../github-fork.js"
+import { validateGithubCloneAuthTokenPreflight } from "../github-token-preflight.js"
 import { defaultProjectsRoot } from "../menu-helpers.js"
 import { findSshPrivateKey } from "../path-helpers.js"
 import { buildSshCommand, getContainerIpIfInsideContainer } from "../projects-core.js"
@@ -38,6 +40,7 @@ type CreateProjectError =
   | FileExistsError
   | CloneFailedError
   | AgentFailedError
+  | AuthError
   | DockerAccessError
   | DockerCommandError
   | PortProbeError
@@ -66,15 +69,14 @@ const resolveRootedConfig = (command: CreateCommand, ctx: CreateContext): Create
 })
 
 const resolveCreateConfig = (
-  command: CreateCommand,
-  ctx: CreateContext,
+  rootedConfig: CreateCommand["config"],
   resolvedOutDir: string
 ): Effect.Effect<
   CreateCommand["config"],
   PortProbeError | PlatformError,
   FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
 > =>
-  resolveSshPort(resolveRootedConfig(command, ctx), resolvedOutDir).pipe(
+  resolveSshPort(rootedConfig, resolvedOutDir).pipe(
     Effect.flatMap((config) => applyGithubForkConfig(config)),
     Effect.flatMap((config) => resolveTemplateResourceLimits(config))
   )
@@ -245,8 +247,11 @@ const runCreateProject = (
 
     const ctx = makeCreateContext(path, process.cwd())
     const resolvedOutDir = path.resolve(ctx.resolveRootPath(command.outDir))
+    const rootedConfig = resolveRootedConfig(command, ctx)
 
-    const resolvedConfig = yield* _(resolveCreateConfig(command, ctx, resolvedOutDir))
+    yield* _(validateGithubCloneAuthTokenPreflight(rootedConfig))
+
+    const resolvedConfig = yield* _(resolveCreateConfig(rootedConfig, resolvedOutDir))
     const finalConfig = yield* _(resolveFinalAgentConfig(resolvedConfig))
     const { globalConfig, projectConfig } = buildProjectConfigs(path, ctx.baseDir, resolvedOutDir, finalConfig)
 
@@ -263,6 +268,19 @@ const runCreateProject = (
     const hasAgent = finalConfig.agentMode !== undefined
     const waitForAgent = hasAgent && (finalConfig.agentAuto ?? false)
 
+    // CHANGE: run autoSyncState before docker compose up to prevent bind-mount inode invalidation
+    // WHY: git reset --hard in autoSyncState deletes and recreates .orch/auth/codex; if docker is
+    //      already running with a bind-mount on that directory, the old inode becomes unreachable
+    //      inside the container — codex fails with "No such file or directory"
+    // QUOTE(ТЗ): n/a
+    // REF: issue-158
+    // SOURCE: n/a
+    // FORMAT THEOREM: ∀p: synced(p) ∧ stable_inode(.orch/auth/codex, p) → valid_mount(docker_up(p))
+    // PURITY: SHELL
+    // EFFECT: Effect<void, never, StateRepoEnv>
+    // INVARIANT: .orch/auth/codex inode is stable when docker compose up runs
+    // COMPLEXITY: O(git_sync) before O(docker_up)
+    yield* _(autoSyncState(`chore(state): update ${formatStateSyncLabel(projectConfig.repoUrl)}`))
     yield* _(
       runDockerUpIfNeeded(resolvedOutDir, projectConfig, {
         runUp: command.runUp,
@@ -278,7 +296,6 @@ const runCreateProject = (
 
     yield* _(maybeCleanupAfterAgent(waitForAgent, resolvedOutDir))
 
-    yield* _(autoSyncState(`chore(state): update ${formatStateSyncLabel(projectConfig.repoUrl)}`))
     yield* _(maybeOpenSsh(command, hasAgent, waitForAgent, projectConfig))
   }).pipe(Effect.asVoid)
 

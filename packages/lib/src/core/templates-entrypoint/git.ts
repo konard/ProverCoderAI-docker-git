@@ -255,6 +255,29 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 done
 EOF
 chmod 0755 "$PRE_PUSH_HOOK"
+
+cat <<'EOF' >> "$PRE_PUSH_HOOK"
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$REPO_ROOT"
+
+# CHANGE: resolve session-backup script from /opt/docker-git/scripts (embedded) or repo-local fallback
+# WHY: docker-git scripts are now embedded in the container image at /opt/docker-git/scripts
+# REF: issue-176
+if [ "${"${"}DOCKER_GIT_SKIP_SESSION_BACKUP:-}" != "1" ]; then
+  if command -v gh >/dev/null 2>&1; then
+    BACKUP_SCRIPT=""
+    if [ -f /opt/docker-git/scripts/session-backup-gist.js ]; then
+      BACKUP_SCRIPT="/opt/docker-git/scripts/session-backup-gist.js"
+    elif [ -f "$REPO_ROOT/scripts/session-backup-gist.js" ]; then
+      BACKUP_SCRIPT="$REPO_ROOT/scripts/session-backup-gist.js"
+    fi
+    if [ -n "$BACKUP_SCRIPT" ]; then
+      node "$BACKUP_SCRIPT" --verbose || echo "[session-backup] Warning: session backup failed (non-fatal)"
+    fi
+  fi
+fi
+EOF
 git config --system core.hooksPath "$HOOKS_DIR" || true
 git config --global core.hooksPath "$HOOKS_DIR" || true`
 

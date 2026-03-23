@@ -11,6 +11,7 @@ import { parseMcpPlaywright } from "./parser-mcp-playwright.js"
 import { parseRawOptions } from "./parser-options.js"
 import { parsePanes } from "./parser-panes.js"
 import { parseScrap } from "./parser-scrap.js"
+import { parseSessionGists } from "./parser-session-gists.js"
 import { parseSessions } from "./parser-sessions.js"
 import { parseState } from "./parser-state.js"
 import { usageText } from "./usage.js"
@@ -21,6 +22,7 @@ const helpCommand: Command = { _tag: "Help", message: usageText }
 const menuCommand: Command = { _tag: "Menu" }
 const statusCommand: Command = { _tag: "Status" }
 const downAllCommand: Command = { _tag: "DownAll" }
+const applyAllCommand: Command = { _tag: "ApplyAll" }
 
 const parseCreate = (args: ReadonlyArray<string>): Either.Either<Command, ParseError> =>
   Either.flatMap(parseRawOptions(args), (raw) => buildCreateCommand(raw))
@@ -71,13 +73,17 @@ export const parseArgs = (args: ReadonlyArray<string>): Either.Either<Command, P
       Match.when("stop-all", () => Either.right(downAllCommand)),
       Match.when("kill-all", () => Either.right(downAllCommand)),
       Match.when("menu", () => Either.right(menuCommand)),
-      Match.when("ui", () => Either.right(menuCommand)),
-      Match.when("auth", () => parseAuth(rest))
+      Match.when("ui", () => Either.right(menuCommand))
     )
     .pipe(
+      Match.when("apply-all", () => Either.right(applyAllCommand)),
+      Match.when("update-all", () => Either.right(applyAllCommand)),
+      Match.when("auth", () => parseAuth(rest)),
       Match.when("open", () => parseAttach(rest)),
       Match.when("apply", () => parseApply(rest)),
       Match.when("state", () => parseState(rest)),
+      Match.when("session-gists", () => parseSessionGists(rest)),
+      Match.when("gists", () => parseSessionGists(rest)),
       Match.orElse(() => Either.left(unknownCommandError))
     )
 }

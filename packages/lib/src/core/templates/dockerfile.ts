@@ -223,6 +223,18 @@ RUN printf "%s\\n" \
 # Default password = username (works out of the box; key auth still accepted if authorized_keys provided)
 RUN echo "${config.sshUser}:${config.sshUser}" | chpasswd`
 
+// CHANGE: add docker-git scripts to Docker image at /opt/docker-git/scripts
+// WHY: scripts (session-backup, pre-commit guards, knowledge splitter) must be available
+//      inside the container for git hooks and docker-git module usage
+// REF: issue-176
+// PURITY: CORE (pure template renderer)
+// INVARIANT: ∀ script ∈ scripts/: accessible(/opt/docker-git/scripts/{script})
+const renderDockerfileScripts = (): string =>
+  `# docker-git scripts (hooks, session backup, knowledge guards)
+COPY scripts/ /opt/docker-git/scripts/
+RUN find /opt/docker-git/scripts -type f -name '*.sh' -exec chmod +x {} + \
+  && find /opt/docker-git/scripts -type f -name '*.js' -exec chmod +x {} +`
+
 const renderDockerfileWorkspace = (config: TemplateConfig): string =>
   `# Workspace path (supports root-level dirs like /repo)
 RUN mkdir -p ${config.targetDir} \
@@ -244,5 +256,6 @@ export const renderDockerfile = (config: TemplateConfig): string =>
     renderDockerfileOpenCode(),
     renderDockerfileGitleaks(),
     renderDockerfileUsers(config),
+    renderDockerfileScripts(),
     renderDockerfileWorkspace(config)
   ].join("\n\n")

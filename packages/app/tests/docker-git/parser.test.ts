@@ -265,6 +265,12 @@ describe("parseArgs", () => {
       expect(command.enableMcpPlaywright).toBe(true)
     }))
 
+  it.effect("parses apply-all and update-all commands", () =>
+    Effect.sync(() => {
+      expect(parseOrThrow(["apply-all"])._tag).toBe("ApplyAll")
+      expect(parseOrThrow(["update-all"])._tag).toBe("ApplyAll")
+    }))
+
   it.effect("parses down-all command", () =>
     Effect.sync(() => {
       const command = parseOrThrow(["down-all"])

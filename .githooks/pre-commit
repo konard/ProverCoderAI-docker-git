@@ -15,6 +15,15 @@ done < <(
     -print0
 )
 
+# CHANGE: auto-stage AI agent config directories (.gemini, .claude, .codex)
+# WHY: ensures AI session context is always included in commits without manual git add
+# REF: issue-170
+for ai_dir in .gemini .claude .codex; do
+  if [ -d "$ai_dir" ]; then
+    git add -A -- "$ai_dir"
+  fi
+done
+
 MAX_BYTES=$((99 * 1000 * 1000))
 too_large=()
 

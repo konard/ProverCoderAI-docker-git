@@ -125,6 +125,9 @@ const readEnableMcpPlaywrightFlag = (value: unknown): boolean | undefined => {
   return typeof flag === "boolean" ? flag : undefined
 }
 
+const countOccurrences = (source: string, fragment: string): number =>
+  source.split(fragment).length - 1
+
 describe("prepareProjectFiles", () => {
   it.effect("force-env refresh rewrites managed templates", () =>
     withTempDir((root) =>
@@ -147,6 +150,7 @@ describe("prepareProjectFiles", () => {
         const entrypointPath = path.join(outDir, "entrypoint.sh")
         const entrypoint = yield* _(fs.readFileString(entrypointPath))
         const composeBefore = yield* _(fs.readFileString(path.join(outDir, "docker-compose.yml")))
+        const dnsBlock = "    dns:\n      - 8.8.8.8\n      - 8.8.4.4\n      - 1.1.1.1"
         const entrypointSyntaxExitCode = yield* _(
           runCommandExitCode({
             cwd: outDir,
@@ -171,6 +175,11 @@ describe("prepareProjectFiles", () => {
         expect(entrypoint).toContain('. /etc/profile 2>/dev/null || true;')
         expect(entrypoint).toContain("codex exec")
         expect(entrypoint).not.toContain("codex --approval-mode full-auto")
+        expect(entrypoint).toContain("docker_git_repair_dns() {")
+        expect(entrypoint).toContain('local test_domain="github.com"')
+        expect(entrypoint).toContain('local fallback_dns="8.8.8.8 8.8.4.4 1.1.1.1"')
+        expect(entrypoint).toContain('printf "nameserver %s\\n" "$ns" >> "$resolv"')
+        expect(entrypoint).toContain("docker_git_repair_dns || true")
         expect(entrypoint).toContain('"plugin": ["oh-my-opencode"]')
         expect(entrypoint).toContain("branch '$REPO_REF' missing; retrying without --branch")
         expect(entrypoint).not.toContain("git ls-remote --symref")
@@ -185,6 +194,7 @@ describe("prepareProjectFiles", () => {
         expect(composeBefore).not.toContain("dg-test-browser")
         expect(composeBefore).toContain("docker-git-shared")
         expect(composeBefore).toContain("external: true")
+        expect(countOccurrences(composeBefore, dnsBlock)).toBe(1)
 
         yield* _(
           prepareProjectFiles(outDir, root, globalConfig, withMcp, {
@@ -208,6 +218,7 @@ describe("prepareProjectFiles", () => {
         expect(composeAfter).toContain("container_name: dg-test-browser\n    restart: unless-stopped")
         expect(composeAfter).toContain("docker-git-shared")
         expect(composeAfter).toContain("external: true")
+        expect(countOccurrences(composeAfter, dnsBlock)).toBe(2)
         expect(readEnableMcpPlaywrightFlag(configAfter)).toBe(true)
         expect(configAfterText).toContain('"cpuLimit": "30%"')
         expect(configAfterText).toContain('"ramLimit": "30%"')

@@ -19,8 +19,14 @@ import {
 import type { AppError } from "@effect-template/lib/usecases/errors"
 import { renderError } from "@effect-template/lib/usecases/errors"
 import { mcpPlaywrightUp } from "@effect-template/lib/usecases/mcp-playwright"
-import { downAllDockerGitProjects, listProjectStatus } from "@effect-template/lib/usecases/projects"
+import { applyAllDockerGitProjects, downAllDockerGitProjects, listProjectStatus } from "@effect-template/lib/usecases/projects"
 import { exportScrap, importScrap } from "@effect-template/lib/usecases/scrap"
+import {
+  sessionGistBackup,
+  sessionGistDownload,
+  sessionGistList,
+  sessionGistView
+} from "@effect-template/lib/usecases/session-gists"
 import {
   stateCommit,
   stateInit,
@@ -74,6 +80,7 @@ type NonBaseCommand = Exclude<
   | { readonly _tag: "Create" }
   | { readonly _tag: "Status" }
   | { readonly _tag: "DownAll" }
+  | { readonly _tag: "ApplyAll" }
   | { readonly _tag: "Menu" }
 >
 
@@ -110,6 +117,10 @@ const handleNonBaseCommand = (command: NonBaseCommand) =>
       Match.when({ _tag: "ScrapExport" }, (cmd) => exportScrap(cmd)),
       Match.when({ _tag: "ScrapImport" }, (cmd) => importScrap(cmd)),
       Match.when({ _tag: "McpPlaywrightUp" }, (cmd) => mcpPlaywrightUp(cmd)),
+      Match.when({ _tag: "SessionGistBackup" }, (cmd) => sessionGistBackup(cmd)),
+      Match.when({ _tag: "SessionGistList" }, (cmd) => sessionGistList(cmd)),
+      Match.when({ _tag: "SessionGistView" }, (cmd) => sessionGistView(cmd)),
+      Match.when({ _tag: "SessionGistDownload" }, (cmd) => sessionGistDownload(cmd)),
       Match.exhaustive
     )
 
@@ -131,6 +142,7 @@ export const program = pipe(
       Match.when({ _tag: "Create" }, (create) => createProject(create)),
       Match.when({ _tag: "Status" }, () => listProjectStatus),
       Match.when({ _tag: "DownAll" }, () => downAllDockerGitProjects),
+      Match.when({ _tag: "ApplyAll" }, () => applyAllDockerGitProjects),
       Match.when({ _tag: "Menu" }, () => runMenu),
       Match.orElse((cmd) => handleNonBaseCommand(cmd))
     )

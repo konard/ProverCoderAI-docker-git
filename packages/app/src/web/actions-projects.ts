@@ -13,9 +13,9 @@ import {
 } from "./actions-shared.js"
 import { loadSelectedProjectTasks } from "./actions-tasks.js"
 import {
+  type ApiEvent,
   applyAllProjects,
   applyProject,
-  type ApiEvent,
   deleteProject,
   downAllProjects,
   downProject,
@@ -78,30 +78,30 @@ const resolveProjectTerminalKey = (
   return null
 }
 
-const randomHex = (bytes: number): string => {
-  const getRandomValues = globalThis.crypto?.getRandomValues
-  if (typeof getRandomValues === "function") {
-    const values = new Uint8Array(bytes)
-    getRandomValues.call(globalThis.crypto, values)
-    return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("")
-  }
+let pendingTerminalSessionCounter = 0
 
-  let fallback = ""
-  while (fallback.length < bytes * 2) {
-    fallback += Math.floor(Math.random() * 0x1_0000_0000)
-      .toString(16)
-      .padStart(8, "0")
+const cryptoRandomHex = (bytes: number): string | null => {
+  const cryptoApi = globalThis.crypto as Crypto | undefined
+  if (cryptoApi === undefined || typeof cryptoApi.getRandomValues !== "function") {
+    return null
   }
-  return fallback.slice(0, bytes * 2)
+  const values = new Uint8Array(bytes)
+  cryptoApi.getRandomValues(values)
+  return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("")
 }
 
 const createPendingTerminalSessionId = (): string => {
-  const randomUUID = globalThis.crypto?.randomUUID
-  if (typeof randomUUID === "function") {
-    return randomUUID.call(globalThis.crypto)
+  const cryptoApi = globalThis.crypto as Crypto | undefined
+  if (cryptoApi !== undefined && typeof cryptoApi.randomUUID === "function") {
+    return cryptoApi.randomUUID()
   }
-
-  return `pending-${Date.now().toString(16)}-${randomHex(8)}`
+  const randomSuffix = cryptoRandomHex(8)
+  if (randomSuffix !== null) {
+    return `pending-${Date.now().toString(16)}-${randomSuffix}`
+  }
+  pendingTerminalSessionCounter = (pendingTerminalSessionCounter + 1) >>> 0
+  const counterSuffix = pendingTerminalSessionCounter.toString(16).padStart(8, "0")
+  return `pending-${Date.now().toString(16)}-${counterSuffix}`
 }
 
 const readEventPayloadString = (

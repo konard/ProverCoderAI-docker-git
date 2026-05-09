@@ -3,16 +3,36 @@ import { Effect } from "effect"
 import { afterEach, beforeEach, vi } from "vitest"
 
 import { applyProjectById, connectProjectById, runApplyAllProjects } from "../../src/web/actions-projects.js"
-import type { ProjectDetails, StartProjectTerminalSessionAccepted, TerminalSession } from "../../src/web/api.js"
+import type {
+  ApiEvent,
+  ProjectDetails,
+  StartProjectTerminalSessionAccepted,
+  TerminalSession
+} from "../../src/web/api.js"
 import type { ActiveTerminalSession } from "../../src/web/terminal.js"
 import { makeBrowserActionContext, waitForAssertion } from "./browser-action-context-fixture.js"
+
+type EventStreamHandlersFixture = {
+  readonly onLine: (line: string) => void
+  readonly onEvent?: (event: ApiEvent) => void
+  readonly onRateLimit: () => void
+  readonly initialCursor?: number | undefined
+}
+
+type EventStreamControlsFixture = {
+  readonly close: () => void
+}
 
 const applyAllProjectsMock = vi.hoisted(() => vi.fn())
 const applyProjectMock = vi.hoisted(() => vi.fn())
 const eventStreamCloseMock = vi.hoisted(() => vi.fn())
 const loadProjectTerminalSessionMock = vi.hoisted(() => vi.fn())
-const openProjectEventStreamMock = vi.hoisted(() => vi.fn())
-const startProjectTerminalSessionMock = vi.hoisted(() => vi.fn())
+const openProjectEventStreamMock = vi.hoisted(() =>
+  vi.fn<(projectId: string, handlers: EventStreamHandlersFixture) => EventStreamControlsFixture>()
+)
+const startProjectTerminalSessionMock = vi.hoisted(() =>
+  vi.fn<(projectKey: string, requestId: string) => Effect.Effect<StartProjectTerminalSessionAccepted>>()
+)
 
 vi.mock("../../src/web/api.js", () => ({
   applyAllProjects: applyAllProjectsMock,
@@ -194,8 +214,7 @@ describe("web project actions", () => {
 
   it.effect("starts SSH terminal creation when randomUUID is unavailable", () =>
     Effect.gen(function*(_) {
-      const dateNowMock = vi.spyOn(Date, "now").mockReturnValue(0x1234)
-      const mathRandomMock = vi.spyOn(Math, "random").mockReturnValue(0.5)
+      const dateNowMock = vi.spyOn(Date, "now").mockReturnValue(0x12_34)
       vi.stubGlobal("crypto", {})
       startProjectTerminalSessionMock.mockImplementation((_projectKey, requestId: string) =>
         Effect.succeed(startTerminalAccepted(requestId))
@@ -215,10 +234,10 @@ describe("web project actions", () => {
       }))
 
       const requestId = startProjectTerminalSessionMock.mock.calls[0]?.[1]
-      expect(requestId).toBe("pending-1234-8000000080000000")
+      expect(typeof requestId).toBe("string")
+      expect(requestId).toMatch(/^pending-1234-[0-9a-f]{8}$/)
       expect(addTerminalSession).toHaveBeenCalledTimes(1)
       expect(openProjectEventStreamMock).toHaveBeenCalledTimes(1)
-      mathRandomMock.mockRestore()
       dateNowMock.mockRestore()
     }))
 

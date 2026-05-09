@@ -1,5 +1,6 @@
 import { openSelectedProjectBrowser } from "./actions-browser.js"
 import { openSelectedProjectDatabaseEditor } from "./actions-databases.js"
+import { readEventPayloadString } from "./actions-event-payload.js"
 import { appendOutputLine, appendOutputLineHandler, notifyProjectEventRateLimit } from "./actions-output.js"
 import { openSelectedProjectPort } from "./actions-port-forwards.js"
 import {
@@ -78,42 +79,34 @@ const resolveProjectTerminalKey = (
   return null
 }
 
-let pendingTerminalSessionCounter = 0
-
-const cryptoRandomHex = (bytes: number): string | null => {
-  const cryptoApi = globalThis.crypto as Crypto | undefined
-  if (cryptoApi === undefined || typeof cryptoApi.getRandomValues !== "function") {
-    return null
-  }
+const randomHex = (bytes: number): string => {
   const values = new Uint8Array(bytes)
-  cryptoApi.getRandomValues(values)
+  globalThis.crypto.getRandomValues(values)
   return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("")
 }
 
 const createPendingTerminalSessionId = (): string => {
-  const cryptoApi = globalThis.crypto as Crypto | undefined
-  if (cryptoApi !== undefined && typeof cryptoApi.randomUUID === "function") {
-    return cryptoApi.randomUUID()
+  if (Reflect.has(globalThis.crypto, "randomUUID")) {
+    return globalThis.crypto.randomUUID()
   }
-  const randomSuffix = cryptoRandomHex(8)
-  if (randomSuffix !== null) {
-    return `pending-${Date.now().toString(16)}-${randomSuffix}`
-  }
-  pendingTerminalSessionCounter = (pendingTerminalSessionCounter + 1) >>> 0
-  const counterSuffix = pendingTerminalSessionCounter.toString(16).padStart(8, "0")
-  return `pending-${Date.now().toString(16)}-${counterSuffix}`
+
+  return `pending-${Date.now().toString(16)}-${randomHex(8)}`
 }
 
-const readEventPayloadString = (
-  event: ApiEvent,
-  key: string
-): string | null => {
-  const payload = event.payload
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return null
-  }
-  const value = Object.entries(payload).find(([name]) => name === key)?.[1]
-  return typeof value === "string" ? value : null
+type ProjectActiveTerminalSessionArgs = Omit<
+  Parameters<typeof buildProjectActiveTerminalSession>[0],
+  "onExit" | "onReady"
+>
+
+const addProjectTerminalSession = (
+  context: BrowserActionContext,
+  args: ProjectActiveTerminalSessionArgs
+) => {
+  context.addTerminalSession(buildProjectActiveTerminalSession({
+    ...args,
+    onExit: context.reloadDashboard,
+    onReady: context.reloadDashboard
+  }))
 }
 
 const readTerminalSessionCreatedId = (
@@ -188,6 +181,11 @@ export const connectProjectById = (
     stream?.close()
     stream = null
   }
+  const showPendingTerminalError = (error: string) => {
+    pendingSessionFinalized = true
+    appendOutputLine(context, `[error] ${error}`)
+    context.addTerminalSession(renderPendingTerminalSession(error, "error"))
+  }
   const attachCreatedSession = (sessionId: string) => {
     if (attachedSessionId !== null) {
       return
@@ -198,23 +196,19 @@ export const connectProjectById = (
       effect: loadProjectTerminalSession(resolvedProjectKey, sessionId),
       label: "Attaching SSH terminal",
       onFailure: (error) => {
-        pendingSessionFinalized = true
-        appendOutputLine(context, `[error] ${error}`)
-        context.addTerminalSession(renderPendingTerminalSession(error, "error"))
+        showPendingTerminalError(error)
         closeStream()
       },
       onSuccess: (session) => {
         pendingSessionFinalized = true
         context.reloadDashboard()
         context.closeTerminalSession(pendingSessionId)
-        context.addTerminalSession(buildProjectActiveTerminalSession({
-          onExit: context.reloadDashboard,
-          onReady: context.reloadDashboard,
+        addProjectTerminalSession(context, {
           projectDisplayName,
           projectId,
           projectKey: resolvedProjectKey,
           session
-        }))
+        })
         context.setMessage(`Project is ready. SSH terminal is connecting for ${projectDisplayName}.`)
         closeStream()
       }
@@ -225,9 +219,7 @@ export const connectProjectById = (
     effect: startProjectTerminalSession(resolvedProjectKey, pendingSessionId),
     label: "Opening SSH terminal",
     onFailure: (error) => {
-      pendingSessionFinalized = true
-      appendOutputLine(context, `[error] ${error}`)
-      context.addTerminalSession(renderPendingTerminalSession(error, "error"))
+      showPendingTerminalError(error)
     },
     onSuccess: (accepted) => {
       appendOutputLine(context, `[ssh.prepare] SSH terminal request accepted (${accepted.requestId})`)
@@ -237,9 +229,7 @@ export const connectProjectById = (
         onEvent: (event) => {
           const failure = readTerminalStartupFailure(event, accepted.requestId)
           if (failure !== null) {
-            pendingSessionFinalized = true
-            appendOutputLine(context, `[error] ${failure}`)
-            context.addTerminalSession(renderPendingTerminalSession(failure, "error"))
+            showPendingTerminalError(failure)
             context.setMessage(failure)
             closeStream()
             return
@@ -306,14 +296,12 @@ export const attachProjectTerminalById = (
     effect: loadProjectTerminalSession(resolvedProjectKey, sessionId),
     label: "Attaching SSH terminal",
     onSuccess: (session) => {
-      context.addTerminalSession(buildProjectActiveTerminalSession({
-        onExit: context.reloadDashboard,
-        onReady: context.reloadDashboard,
+      addProjectTerminalSession(context, {
         projectDisplayName,
         projectId,
         projectKey: resolvedProjectKey,
         session
-      }))
+      })
       context.setMessage(`Attached SSH terminal for ${projectDisplayName}.`)
     }
   })

@@ -107,6 +107,17 @@ describe("renderEntrypointGitHooks", () => {
   })
 })
 
+describe("renderEntrypoint clone cache", () => {
+  it("refreshes cached mirrors without fetching provider PR refs", () => {
+    const entrypoint = renderEntrypoint(makeTemplateConfig())
+
+    expect(entrypoint).toContain(
+      "git --git-dir '$CACHE_REPO_DIR' fetch --progress --prune '$AUTH_REPO_URL' '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'"
+    )
+    expect(entrypoint).not.toContain("'+refs/*:refs/*'")
+  })
+})
+
 describe("renderEntrypoint auth bridge", () => {
   const renderAuthEntrypoint = (): string =>
     renderEntrypoint(

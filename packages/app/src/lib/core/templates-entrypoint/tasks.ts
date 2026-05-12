@@ -117,6 +117,16 @@ const renderCloneAuthRepoUrl = (): string =>
     AUTH_REPO_URL="$(printf "%s" "$REPO_URL" | sed "s#^https://#https://\${RESOLVED_GIT_AUTH_USER}:\${RESOLVED_GIT_AUTH_TOKEN}@#")"
   fi`
 
+// CHANGE: constrain mirror-cache refresh to branch/tag namespaces.
+// WHY: provider PR/MR namespaces can contain thousands of refs and make cache refresh unbounded for CI.
+// QUOTE(ТЗ): "fix CI/CD"
+// REF: issue-265
+// SOURCE: n/a
+// FORMAT THEOREM: ∀repo: refresh(cache(repo)) ⊆ heads(repo) ∪ tags(repo)
+// PURITY: SHELL
+// EFFECT: generated Bash performs git fetch against the configured repository.
+// INVARIANT: cache refresh never requests refs/pull/* or refs/merge-requests/*.
+// COMPLEXITY: O(h + t) where h = |heads| and t = |tags|.
 const renderCloneCacheInit = (config: TemplateConfig): string =>
   `  CLONE_CACHE_ARGS=""
   CACHE_REPO_DIR=""
@@ -135,7 +145,7 @@ const renderCloneCacheInit = (config: TemplateConfig): string =>
     chown 1000:1000 "$CACHE_ROOT" || true
     if [[ -d "$CACHE_REPO_DIR" ]]; then
       if su - ${config.sshUser} -c "git --git-dir '$CACHE_REPO_DIR' rev-parse --is-bare-repository >/dev/null 2>&1"; then
-        if ! su - ${config.sshUser} -c "GIT_TERMINAL_PROMPT=0 git --git-dir '$CACHE_REPO_DIR' fetch --progress --prune '$AUTH_REPO_URL' '+refs/*:refs/*'"; then
+        if ! su - ${config.sshUser} -c "GIT_TERMINAL_PROMPT=0 git --git-dir '$CACHE_REPO_DIR' fetch --progress --prune '$AUTH_REPO_URL' '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'"; then
           echo "[clone-cache] mirror refresh failed for $REPO_URL"
         fi
         CLONE_CACHE_ARGS="--reference-if-able '$CACHE_REPO_DIR' --dissociate"

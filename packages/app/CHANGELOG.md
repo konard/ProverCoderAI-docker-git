@@ -1,5 +1,11 @@
 # @prover-coder-ai/docker-git
 
+## 1.1.2
+
+### Patch Changes
+
+- chore: automated version bump
+
 ## 1.1.1
 
 ### Patch Changes

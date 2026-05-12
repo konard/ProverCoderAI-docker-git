@@ -1,5 +1,6 @@
 import * as Command from "@effect/platform/Command"
 import * as CommandExecutor from "@effect/platform/CommandExecutor"
+import * as PlatformError from "@effect/platform/Error"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as Inspectable from "effect/Inspectable"
@@ -36,6 +37,22 @@ const makeDockerInfoExecutor = (): CommandExecutor.CommandExecutor => {
 
       return process
     })
+
+  return CommandExecutor.makeExecutor(start)
+}
+
+const makeMissingDockerInfoExecutor = (): CommandExecutor.CommandExecutor => {
+  const start = (_command: Command.Command): Effect.Effect<CommandExecutor.Process, PlatformError.PlatformError> =>
+    Effect.fail(
+      new PlatformError.SystemError({
+        reason: "NotFound",
+        module: "Command",
+        method: "spawn",
+        description: "Executable not found in $PATH: \"docker\"",
+        syscall: "spawn docker",
+        pathOrDescriptor: "docker info"
+      })
+    )
 
   return CommandExecutor.makeExecutor(start)
 }
@@ -130,6 +147,26 @@ describe("classifyDockerAccessIssue", () => {
 
       expect(error.issue).toBe("PermissionDenied")
       expect(error.details).not.toContain("Fallback DOCKER_HOST=")
+    })
+  )
+
+  it.effect("maps missing docker executable to daemon-unavailable access error", () =>
+    Effect.gen(function*(_) {
+      const executor = makeMissingDockerInfoExecutor()
+      const error = yield* _(
+        Effect.scoped(
+          ensureDockerDaemonAccess("/tmp").pipe(
+            Effect.provideService(CommandExecutor.CommandExecutor, executor),
+            Effect.flip
+          )
+        )
+      )
+
+      expect(error._tag).toBe("DockerAccessError")
+      if (error._tag === "DockerAccessError") {
+        expect(error.issue).toBe("DaemonUnavailable")
+        expect(error.details).toContain("docker executable not found in PATH")
+      }
     })
   )
 })

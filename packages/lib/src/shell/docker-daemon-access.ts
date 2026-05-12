@@ -8,6 +8,8 @@ import * as Stream from "effect/Stream"
 import { DockerAccessError, type DockerAccessIssue } from "./errors.js"
 
 const permissionDeniedPattern = /permission denied/i
+const dockerInfoCommandDescriptor = "docker info"
+const dockerInfoExecutableNotFoundDetails = "docker executable not found in PATH while running docker info"
 
 const collectUint8Array = (chunks: Chunk.Chunk<Uint8Array>): Uint8Array =>
   Chunk.reduce(chunks, new Uint8Array(), (acc, curr) => {
@@ -19,6 +21,23 @@ const collectUint8Array = (chunks: Chunk.Chunk<Uint8Array>): Uint8Array =>
 
 const formatDockerFallbackFailure = (dockerHost: string, details: string): string =>
   `Fallback DOCKER_HOST=${dockerHost} failed: ${details}`
+
+// CHANGE: normalize missing docker executable into daemon-unavailable details
+// WHY: Command.spawn ENOENT is still a Docker access failure, not an API stack/debug leak
+// QUOTE(ТЗ): n/a
+// REF: local-api-test-d40cd25
+// SOURCE: n/a
+// FORMAT THEOREM: forall e: spawnNotFound(e) -> classify(details(e)) = DaemonUnavailable
+// PURITY: CORE
+// EFFECT: n/a
+// INVARIANT: only `docker info` spawn NotFound is normalized here
+// COMPLEXITY: O(1)
+const isDockerInfoExecutableNotFound = (error: PlatformError): boolean =>
+  error._tag === "SystemError" &&
+  error.reason === "NotFound" &&
+  error.module === "Command" &&
+  error.method === "spawn" &&
+  error.pathOrDescriptor === dockerInfoCommandDescriptor
 
 const resolveDockerHostFallbackCandidates = (): ReadonlyArray<string> => {
   if (process.env["DOCKER_HOST"] !== undefined) {
@@ -74,6 +93,14 @@ const runDockerInfoCommand = (
         details: stderr.length > 0 ? stderr : `docker info failed with exit code ${exitCode}`
       }
     })
+  ).pipe(
+    Effect.catchTag("SystemError", (error) =>
+      isDockerInfoExecutableNotFound(error)
+        ? Effect.succeed({
+          exitCode: 127,
+          details: dockerInfoExecutableNotFoundDetails
+        })
+        : Effect.fail(error))
   )
 
 // CHANGE: classify docker daemon access failure into deterministic typed reasons

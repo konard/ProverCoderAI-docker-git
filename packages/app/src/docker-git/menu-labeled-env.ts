@@ -1,3 +1,5 @@
+import { normalizeUpperSnakeLabel } from "../shared/label-normalization.js"
+
 type EnvEntry = {
   readonly key: string
   readonly value: string
@@ -26,24 +28,8 @@ const parseEnvEntries = (input: string): ReadonlyArray<EnvEntry> => {
 }
 
 export const normalizeLabel = (value: string): string => {
-  const trimmed = value.trim()
-  if (trimmed.length === 0) {
-    return ""
-  }
-  const normalized = trimmed
-    .toUpperCase()
-    .replaceAll(/[^A-Z0-9]+/g, "_")
-
-  let start = 0
-  while (start < normalized.length && normalized[start] === "_") {
-    start += 1
-  }
-  let end = normalized.length
-  while (end > start && normalized[end - 1] === "_") {
-    end -= 1
-  }
-  const cleaned = normalized.slice(start, end)
-  return cleaned.length > 0 ? cleaned : ""
+  const normalized = normalizeUpperSnakeLabel(value)
+  return normalized.length > 0 ? normalized : ""
 }
 
 export const buildLabeledEnvKey = (baseKey: string, label: string): string => {

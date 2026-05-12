@@ -4,9 +4,9 @@ import type * as FileSystem from "@effect/platform/FileSystem"
 import type * as Path from "@effect/platform/Path"
 import { Duration, Effect, Match, Schedule } from "effect"
 
+import { normalizeUpperSnakeLabel } from "../../shared/label-normalization.js"
 import type { AuthGitlabLoginCommand, AuthGitlabLogoutCommand, AuthGitlabStatusCommand } from "../core/domain.js"
 import { defaultTemplateConfig } from "../core/domain.js"
-import { trimLeftChar, trimRightChar } from "../core/strings.js"
 import { runDockerAuth, runDockerAuthCapture } from "../shell/docker-auth.js"
 import type { AuthError } from "../shell/errors.js"
 import { CommandFailedError } from "../shell/errors.js"
@@ -50,22 +50,11 @@ const ensureGitlabOrchLayout = (
     claudeAuthPath: ".docker-git/.orch/auth/claude"
   })
 
-const normalizeGitlabLabel = (value: string | null): string => {
-  const trimmed = value?.trim() ?? ""
-  if (trimmed.length === 0) {
-    return ""
-  }
-  const normalized = trimmed.toUpperCase().replaceAll(/[^A-Z0-9]+/g, "_")
-  const withoutLeading = trimLeftChar(normalized, "_")
-  const cleaned = trimRightChar(withoutLeading, "_")
-  return cleaned.length > 0 ? cleaned : ""
-}
-
 const tokenKey = "GITLAB_TOKEN"
 const tokenPrefix = "GITLAB_TOKEN__"
 
 export const buildGitlabTokenKey = (label: string | null): string => {
-  const normalized = normalizeGitlabLabel(label)
+  const normalized = normalizeUpperSnakeLabel(label)
   if (normalized === "DEFAULT" || normalized.length === 0) {
     return tokenKey
   }

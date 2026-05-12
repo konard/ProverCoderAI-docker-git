@@ -47,14 +47,23 @@ export const saveProjectDatabaseProfile = (
     Effect.map((response) => response.profile)
   )
 
-export const deleteProjectDatabaseProfile = (
+const projectDatabaseProfilePath = (projectId: string, profileId: string): string =>
+  `/projects/${encodeURIComponent(projectId)}/databases/profiles/${encodeURIComponent(profileId)}`
+
+const deleteProjectDatabaseProfileResource = (
   projectId: string,
-  profileId: string
+  profileId: string,
+  suffix: "" | "/expose"
 ) =>
   requestText(
     "DELETE",
-    `/projects/${encodeURIComponent(projectId)}/databases/profiles/${encodeURIComponent(profileId)}`
+    `${projectDatabaseProfilePath(projectId, profileId)}${suffix}`
   ).pipe(Effect.asVoid)
+
+export const deleteProjectDatabaseProfile = (
+  projectId: string,
+  profileId: string
+) => deleteProjectDatabaseProfileResource(projectId, profileId, "")
 
 export const exposeProjectDatabaseProfile = (
   projectId: string,
@@ -71,11 +80,7 @@ export const exposeProjectDatabaseProfile = (
 export const deleteProjectDatabaseForward = (
   projectId: string,
   profileId: string
-) =>
-  requestText(
-    "DELETE",
-    `/projects/${encodeURIComponent(projectId)}/databases/profiles/${encodeURIComponent(profileId)}/expose`
-  ).pipe(Effect.asVoid)
+) => deleteProjectDatabaseProfileResource(projectId, profileId, "/expose")
 
 export const loadProjectDatabaseSession = (projectId: string) =>
   requestJson(

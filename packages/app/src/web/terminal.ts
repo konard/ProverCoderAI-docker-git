@@ -53,32 +53,56 @@ type PendingProjectActiveTerminalSessionArgs = {
   readonly message?: string
 }
 
+type ProjectTerminalSessionFields = {
+  readonly browserProjectId: string
+  readonly browserProjectKey: string
+  readonly browserProjectName: string
+  readonly closePath: string
+  readonly header: string
+  readonly readyMessage: string
+  readonly sessionPath: string
+  readonly websocketPath: string
+}
+
 export const terminalSessionRoutePath = (sessionId: string): string => `/ssh/session/${encodeURIComponent(sessionId)}`
 
 export const isPendingActiveTerminalSession = (
   session: ActiveTerminalSession
 ): session is PendingActiveTerminalSession => session.pendingConnection !== undefined
 
-export const buildProjectActiveTerminalSession = (
-  { onExit, onReady, projectDisplayName, projectId, projectKey, session }: ProjectActiveTerminalSessionArgs
-): ActiveTerminalSession => {
+const buildProjectTerminalSessionFields = (
+  projectDisplayName: string,
+  projectId: string,
+  projectKey: string,
+  sessionId: string
+): ProjectTerminalSessionFields => {
   const encodedProjectKey = encodeURIComponent(projectKey)
-  const encodedSessionId = encodeURIComponent(session.id)
+  const encodedSessionId = encodeURIComponent(sessionId)
+  const terminalSessionPath = `/projects/by-key/${encodedProjectKey}/terminal-sessions/${encodedSessionId}`
   return {
     browserProjectId: projectId,
     browserProjectKey: projectKey,
     browserProjectName: projectDisplayName,
-    closePath: `/projects/by-key/${encodedProjectKey}/terminal-sessions/${encodedSessionId}`,
-    exitMessage: "SSH session ended.",
+    closePath: terminalSessionPath,
     header: `SSH terminal: ${projectDisplayName}`,
+    readyMessage: `SSH connected: ${projectDisplayName}.`,
+    sessionPath: terminalSessionRoutePath(sessionId),
+    websocketPath: `${terminalSessionPath}/ws`
+  }
+}
+
+export const buildProjectActiveTerminalSession = (
+  { onExit, onReady, projectDisplayName, projectId, projectKey, session }: ProjectActiveTerminalSessionArgs
+): ActiveTerminalSession => {
+  const fields = buildProjectTerminalSessionFields(projectDisplayName, projectId, projectKey, session.id)
+  return {
+    ...fields,
+    exitMessage: "SSH session ended.",
     ...(onExit === undefined ? {} : { onExit }),
     ...(onReady === undefined ? {} : { onReady }),
     pendingDeleteMessage: `Terminal session was closed before attach: ${projectDisplayName}.`,
-    readyMessage: `SSH connected: ${projectDisplayName}.`,
     session,
-    sessionPath: terminalSessionRoutePath(session.id),
-    subtitle: session.sshCommand,
-    websocketPath: `/projects/by-key/${encodedProjectKey}/terminal-sessions/${encodedSessionId}/ws`
+    subtitle: session.sshCommand
   }
 }
 
@@ -107,23 +131,17 @@ export const buildPendingProjectActiveTerminalSession = (
     projectKey
   }: PendingProjectActiveTerminalSessionArgs
 ): ActiveTerminalSession => {
-  const encodedProjectKey = encodeURIComponent(projectKey)
-  const encodedSessionId = encodeURIComponent(pendingSessionId)
+  const fields = buildProjectTerminalSessionFields(projectDisplayName, projectId, projectKey, pendingSessionId)
   const resolvedMessage = resolvePendingProjectMessage(message, phase)
   return {
-    browserProjectId: projectId,
-    browserProjectKey: projectKey,
-    browserProjectName: projectDisplayName,
-    closePath: `/projects/by-key/${encodedProjectKey}/terminal-sessions/${encodedSessionId}`,
+    ...fields,
     exitMessage: "Pending SSH session closed.",
-    header: `SSH terminal: ${projectDisplayName}`,
     ...(onExit === undefined ? {} : { onExit }),
     pendingConnection: {
       message: resolvedMessage,
       phase
     },
     pendingDeleteMessage: `Pending SSH terminal was closed before attach: ${projectDisplayName}.`,
-    readyMessage: `SSH connected: ${projectDisplayName}.`,
     session: {
       createdAt: createdAt ?? new Date().toISOString(),
       id: pendingSessionId,
@@ -131,9 +149,7 @@ export const buildPendingProjectActiveTerminalSession = (
       sshCommand: "Preparing SSH session...",
       status: phase === "error" ? "failed" : "ready"
     },
-    sessionPath: terminalSessionRoutePath(pendingSessionId),
-    subtitle: resolvedMessage,
-    websocketPath: `/projects/by-key/${encodedProjectKey}/terminal-sessions/${encodedSessionId}/ws`
+    subtitle: resolvedMessage
   }
 }
 

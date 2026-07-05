@@ -1,5 +1,11 @@
 # @prover-coder-ai/docker-git-session-sync
 
+## 1.0.72
+
+### Patch Changes
+
+- chore: automated version bump
+
 ## 1.0.71
 
 ### Patch Changes
